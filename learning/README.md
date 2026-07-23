@@ -15,6 +15,7 @@
 - [x] React Native とは何か（Web/Vue経験者向けの導入）
 - [x] Expo とは何か、なぜ使うのか
 - [x] 開発環境のセットアップ手順（Mac + Expo + 実機Android）
+- [x] npx / package.json / node_modules / npm install の関係
 - [ ] JSX / コンポーネント / 状態管理（React未経験部分の補完）
 - [ ] ネイティブモジュールとブリッジの概念（なぜウェイクワードでネイティブに踏み込むのか）
 - [ ] Android の権限・バックグラウンド動作・Foreground Service の基礎
@@ -25,3 +26,4 @@
 - [01. React Native とは（Web/Vue経験者向けの導入）](./01_react_native_for_web_devs.md)
 - [02. Expo とは何か、なぜ使うのか](./02_expo.md)
 - [03. 開発環境のセットアップ手順（Mac + Expo + 実機Android）](./03_dev_environment_setup.md)
+- [04. npx / package.json / node_modules / npm install の関係](./04_npm_npx_node_modules.md)
