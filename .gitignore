@@ -1,0 +1,46 @@
+# === 依存・ビルド成果物 ===
+node_modules/
+dist/
+build/
+*.tsbuildinfo
+
+# === Expo / React Native（app/ 配下は app/.gitignore も参照）===
+.expo/
+web-build/
+# 生成されるネイティブフォルダ（Development Build 時）
+android/
+ios/
+
+# === 環境変数・機密情報 ===
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p8
+*.p12
+*.jks
+*.mobileprovision
+
+# === AWS / インフラ（将来の backend/ 用）===
+.aws-sam/
+cdk.out/
+.serverless/
+samconfig.toml
+
+# === ログ・一時ファイル ===
+*.log
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+.metro-health-check*
+
+# === OS / エディタ ===
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+# .vscode/ はチームで共有したい設定もあるため個別判断（必要なら追記）
+
+# === 非公開メモ（キャリア観点など個人的な検討）===
+pre-research/XX_*.md
