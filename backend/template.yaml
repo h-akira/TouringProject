@@ -50,6 +50,21 @@ Resources:
             Method: post
             # NOTE: no auth yet. API-key auth + usage plan come in a later stage.
 
+  # Lambda for the /health endpoint (liveness check)
+  HealthFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "lambda-trg-${Environment}-health"
+      CodeUri: src/
+      Handler: handlers/health.handler
+      Events:
+        Health:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RestApi
+            Path: /health
+            Method: get
+
 Outputs:
   ApiBaseUrl:
     Description: "Base URL of the API (append /ask)"

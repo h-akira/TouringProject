@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Text, View, Pressable, StyleSheet, ScrollView } from "react-native";
 import * as Location from "expo-location";
+import type { AskRequest, AskResponse } from "@/api/types";
 
 // Backend base URL from the environment (.env -> EXPO_PUBLIC_API_BASE_URL).
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL;
@@ -41,17 +42,20 @@ export default function Index() {
     setSending(true);
     setAnswer(null);
     try {
-      // 今はモックなので start/end に同じ座標を入れて送る（2点目取得は今後実装）
+      // 今はモックなので start/end に同じ座標を入れて送る（2点目取得は今後実装）。
+      // OpenAPIから生成した AskRequest 型で、送るデータの形が保証される。
+      const requestBody: AskRequest = {
+        start: { latitude: coords.latitude, longitude: coords.longitude },
+        end: { latitude: coords.latitude, longitude: coords.longitude },
+      };
       const res = await fetch(`${API_BASE_URL}/ask`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          start: { latitude: coords.latitude, longitude: coords.longitude },
-          end: { latitude: coords.latitude, longitude: coords.longitude },
-        }),
+        body: JSON.stringify(requestBody),
       });
-      const data = await res.json();
-      setAnswer(data.answer ?? JSON.stringify(data));
+      // AskResponse 型で受けるので data.answer が型安全に参照できる
+      const data = (await res.json()) as AskResponse;
+      setAnswer(data.answer);
     } catch (e) {
       setAnswer("送信に失敗しました: " + String(e));
     } finally {
