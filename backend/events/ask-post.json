@@ -1,0 +1,6 @@
+{
+  "body": "{\"start\": {\"latitude\": 35.0, \"longitude\": 139.0}, \"end\": {\"latitude\": 35.001, \"longitude\": 139.001}}",
+  "httpMethod": "POST",
+  "path": "/ask",
+  "headers": { "Content-Type": "application/json" }
+}

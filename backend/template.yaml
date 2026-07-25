@@ -1,0 +1,56 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Touring AI voice app - backend (mock stage).
+  For now this only proves the app <-> backend wiring: a single POST /ask
+  endpoint that returns a fixed JSON response. STT/LLM/TTS, API-key auth,
+  usage plans, and cost controls are added in later stages
+  (see docs/01_architecture.md).
+
+# Naming convention: <resource-type>-trg-<env>-<identifier>
+#   trg = touring, env = dev/prod, identifier = "main" for a single/primary
+#   resource, otherwise a purpose name (e.g. "ask").
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - prod
+    Description: Deployment environment, used in resource names.
+
+Globals:
+  Function:
+    Timeout: 10
+    MemorySize: 128
+    Runtime: python3.13
+
+Resources:
+  # API Gateway (single -> "main")
+  RestApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: !Sub "apigw-trg-${Environment}-main"
+      StageName: Prod
+
+  # Lambda for the /ask endpoint (may grow -> purpose name "ask")
+  AskFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "lambda-trg-${Environment}-ask"
+      # <CodeUri>/<Handler>: src/handlers/ask.py -> handler()
+      CodeUri: src/
+      Handler: handlers/ask.handler
+      Events:
+        Ask:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RestApi
+            Path: /ask
+            Method: post
+            # NOTE: no auth yet. API-key auth + usage plan come in a later stage.
+
+Outputs:
+  ApiBaseUrl:
+    Description: "Base URL of the API (append /ask)"
+    Value: !Sub "https://${RestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod"

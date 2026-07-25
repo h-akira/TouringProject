@@ -22,11 +22,11 @@ ios/
 *.jks
 *.mobileprovision
 
-# === AWS / インフラ（将来の backend/ 用）===
+# === AWS / インフラ（backend/）===
 .aws-sam/
 cdk.out/
 .serverless/
-samconfig.toml
+# samconfig.toml はリポジトリで管理する（スタック名・リージョン等の共有設定。秘密は含めない）
 
 # === ログ・一時ファイル ===
 *.log
