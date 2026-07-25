@@ -51,8 +51,11 @@
 ## 現在の進捗
 
 - [x] 構想整理・技術選定・プロジェクト方針の策定（pre-research/）
-- [x] learning/ 初期整備（RN入門・Expo・開発環境セットアップ）
-- [x] Expoプロジェクト作成（app/）
+- [x] learning/ 整備（RN入門・Expo・環境構築・Node.jsツールチェーン・状態管理・位置情報）
+- [x] Expoプロジェクト作成（app/）。**SDK 57は最新すぎてExpo Go非対応のためSDK 54にダウングレード済み**
+- [x] 実機（Android + Expo Go）で動作確認済み。編集→即反映のループ確立
+- [x] **MVP機能1: 現在地取得（GPS）が実機で動作**（expo-location、`app/src/app/index.tsx`）
+- [ ] MVP機能2: 連続取得（watchPositionAsync）→ 2点間から進行方位を算出
 - [ ] docs/ にアーキテクチャ設計を作成
 - [ ] PoC: バックグラウンド常駐＋ウェイクワードの実機検証（最優先リスク）
 

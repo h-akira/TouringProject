@@ -32,6 +32,12 @@
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 76
         }
+      ],
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "ツーリング中の現在地に基づいてAIが回答するために位置情報を使用します。"
+        }
       ]
     ],
     "experiments": {
