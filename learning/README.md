@@ -18,6 +18,7 @@
 - [x] npx / package.json / node_modules / npm install の関係
 - [x] JSX / コンポーネント / 状態管理（React未経験部分の補完）
 - [x] 位置情報の扱い方（権限フロー / expo-location）
+- [x] API連携（fetch でバックエンドと通信 / 環境変数）
 - [ ] ネイティブモジュールとブリッジの概念（なぜウェイクワードでネイティブに踏み込むのか）
 - [ ] Android の権限・バックグラウンド動作・Foreground Service の基礎
 - [ ] センサー（方位・進行方向の算出）
@@ -30,3 +31,4 @@
 - [04. npx / package.json / node_modules / npm install の関係](./04_npm_npx_node_modules.md)
 - [05. JSX / コンポーネント / 状態管理（Vue経験者向け）](./05_jsx_components_state.md)
 - [06. 位置情報の扱い方（権限フロー / expo-location）](./06_location_permissions.md)
+- [07. API連携（fetch でバックエンドと通信 / 環境変数）](./07_api_integration.md)
