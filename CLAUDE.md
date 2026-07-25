@@ -73,8 +73,8 @@
 - [x] 実機（Android + Expo Go）で動作確認済み。編集→即反映のループ確立
 - [x] **MVP機能1: 現在地取得（GPS）が実機で動作**（expo-location、`app/src/app/index.tsx`）
 - [x] docs/01 全体アーキテクチャ設計を作成（責務分担・音声フロー・認証・多層コスト対策・SAM）
-- [x] **backend/ にSAMモック作成**（`POST /ask` が固定応答）。`sam local` で動作確認済み
-- [ ] アプリ↔バックエンド連携（RNからbackendにPOSTして応答を受ける）← 次の狙い
+- [x] **backend/ にSAMモック作成**（`POST /ask` が固定応答）。AWSへデプロイ済み（ap-northeast-1）
+- [x] **アプリ↔バックエンド連携が実機で成立**（RN→公開API→応答表示。URLは `app/.env` の `EXPO_PUBLIC_API_BASE_URL`）
 - [ ] MVP機能2: 連続取得（watchPositionAsync）→ 2点間から進行方位を算出
 - [ ] backendに実処理を実装（APIキー認証→STT→Bedrock→Polly、段階的）
 - [ ] PoC: バックグラウンド常駐＋ウェイクワードの実機検証（最優先リスク）
