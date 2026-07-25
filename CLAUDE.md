@@ -37,7 +37,7 @@
 
 | ディレクトリ | 役割 | 書き方 |
 |---|---|---|
-| `pre-research/` | 事前検討（構想・技術選定・方針）。判断の経緯・却下案も残す | — |
+| `pre-research/` | 事前検討（構想・技術選定・方針）。判断の経緯・却下案も残す。`bedrock/`=モデル調査、`agentcore/`=会話継続の基盤調査（実行可能な検証スクリプト付き） | — |
 | `learning/` | 基礎的な学習メモ（RN/JS/Android等の汎用知識） | 基礎を丁寧に・既存Web知識との対応づけ |
 | `docs/` | 本アプリ固有の設計ドキュメント（01=全体アーキテクチャ、02=API仕様OpenAPI） | **初心者でもわかるように書く** |
 | `app/` | React Native (Expo) アプリ本体（**SDK 54**, TypeScript, expo-router）。`src/api/`=OpenAPIから生成した型 | `app/CLAUDE.md` はExpo自動生成 |
@@ -63,7 +63,47 @@
   - 例: スタック `stack-trg-dev-main` / Lambda `lambda-trg-dev-ask` / API Gateway `apigw-trg-dev-main`
 - ローカル実行: `cd backend && sam build && sam local invoke AskFunction --event events/ask-post.json`（権限不要）。
 - デプロイ: `sam deploy`（`samconfig.toml` に設定済み）。ただし**デプロイ用IAM権限の整備が必要**（S3/CloudFormation等）。デプロイはユーザーが実行。
-- **AWS認証情報・アカウントID等は絶対にリポジトリに含めない**（samconfig.tomlにも秘密は書かない）。
+- **AWS認証情報・アカウントID等は絶対にリポジトリに含めない**（samconfig.tomlにも秘密は書かない）。詳細は下記「公開リポジトリの鉄則」。
+
+## ⚠️ 公開リポジトリの鉄則（最重要）
+
+**このリポジトリは public。** 一度コミット・pushしたものはgit履歴に永久に残り、削除しても復元可能。
+**コミット前に必ず確認すること。**
+
+### 書いてはいけないもの
+
+| 種別 | 例 | 代わりに書く |
+|---|---|---|
+| **AWSアカウントID（12桁）** | `123456789012` | `<ACCOUNT_ID>` |
+| **組織ID / Root ID / OU-ID / SCP-ID** | `o-xxxx` `r-xxxx` `ou-xxxx` `p-xxxx` | `<ORG_ID>` 等 |
+| **ARN**（アカウントID部分を含む） | `arn:aws:iam::123456789012:role/x` | `arn:aws:iam::<ACCOUNT_ID>:role/x` |
+| **アクセスキー/シークレット** | `AKIA...` `ASIA...` | 論外。環境変数へ |
+| **APIキー・トークン** | Bedrock/GitHub等のキー | 論外。`.env`（gitignore済）へ |
+| **APIの実URL** | `https://abc123xyz0.execute-api...` | `https://<api-id>.execute-api...` |
+| **IAMユーザー名・実在ユーザー名** | — | 役割名で表現 |
+| **個人のメールアドレス** | — | 書かない |
+
+> AWSアカウントIDはパスワードではないが、**クロスアカウントロールの推測や標的の特定に使われ得る**ため公開しない。
+> 他プロジェクトのアカウント情報を巻き込まないことにも注意（構成図に列挙しない）。
+
+### 一方で、書いてよいもの
+
+- **AWSプロファイル名**（`touring` 等）— ローカルの設定名にすぎず秘密ではない
+- リージョン名、サービス名、モデルID、リソース**命名規約**（実IDでなければ可）
+- 検証で得たレイテンシ・トークン数などの実測値
+
+### コミット前チェック
+
+```sh
+# アカウントID(12桁)・組織/Root/SCP-ID・アクセスキーの混入検査
+grep -rnE '\b[0-9]{12}\b|\b(o-[a-z0-9]{10,}|r-[a-z0-9]{4,}|p-[a-z0-9]{8,})\b|AKIA[0-9A-Z]{16}' \
+  --include='*.md' --include='*.sh' --include='*.yaml' --include='*.py' --include='*.toml' . \
+  | grep -v node_modules
+# → 何も出なければOK
+```
+
+- **AIが検証コマンドの出力をドキュメントに貼るときは特に注意**（ARNやアカウントIDがそのまま混入しやすい）。
+- 万一push済みで混入が判明したら、**まず該当リソースの無効化・ローテーション**を行う（履歴書き換えだけでは不十分）。
 
 ## API契約（OpenAPI）と型生成
 
@@ -83,9 +123,21 @@
 - [x] **backend/ にSAMモック作成**（`POST /ask` が固定応答）。AWSへデプロイ済み（ap-northeast-1）
 - [x] **アプリ↔バックエンド連携が実機で成立**（RN→公開API→応答表示。URLは `app/.env` の `EXPO_PUBLIC_API_BASE_URL`）
 - [x] API契約をOpenAPIで定義（`docs/02`）＋ `GET /health` 追加 ＋ openapi-typescriptで型生成（`app/src/api/`）
+- [x] **Bedrock事前調査**（`pre-research/bedrock/`）。ap-northeast-1で `jp.anthropic.claude-sonnet-4-6` が利用可能と実証。**Claude 5系は当アカウント未提供**
+- [x] **AgentCore調査**（`pre-research/agentcore/`）。会話継続の基盤として **AgentCore採用を決定**。エージェントソースは **S3ソース(.zip)** 方針（Docker不要）
+- [ ] **AgentCoreで最小エージェントをデプロイし、`runtimeSessionId` による会話継続を実証** ← 次の本命
+- [ ] **Lambdaを挟むか否かの決定**（AgentCoreが直接エンドポイントを持つため。認証方式・流量制限の実現性次第）
 - [ ] MVP機能2: 連続取得（watchPositionAsync）→ 2点間から進行方位を算出
-- [ ] backendに実処理を実装（APIキー認証→STT→Bedrock→Polly、段階的）← 次の本命
 - [ ] PoC: バックグラウンド常駐＋ウェイクワードの実機検証（最優先リスク）
+
+### 会話継続の方針（重要）
+
+- **1問1答で終わらせず、続けて質問できる**ことを要件とする。
+- Converse APIは**ステートレス**で `sessionId` 相当のパラメータを持たない（実測確認済み）。
+- **Bedrock Agents Classic は 2026-07-30 で新規受付終了**のため採用不可。後継の **AgentCore** を使う。
+- AgentCoreの `idleRuntimeSessionTimeout` は**AWS側のリソース設定**でアプリからは変更できない。
+  アプリ側でタイムアウトを可変にしたい場合は、**アプリが `runtimeSessionId` を再発行する**方式で実現する。
+- ⚠️ **AgentCoreはアイドル中も課金対象**（microVMが文脈保持のまま生存）。ツーリングは散発的な質問になるためコスト影響を要実測。
 
 ## 補足
 
