@@ -1,0 +1,114 @@
+openapi: 3.0.3
+info:
+  title: Touring AI voice app - API
+  version: 0.1.0
+  description: >
+    App <-> backend contract for the touring AI voice app.
+    This is the source of truth for request/response shapes (used for the
+    frontend fetch types and as documentation). It is kept as a standalone
+    spec for now; it is NOT yet wired into API Gateway's DefinitionBody.
+    Wiring it in (for request validation) can come later once the shape is
+    stable. See docs/01_architecture.md.
+
+servers:
+  # The base URL is environment-specific and injected in the app via
+  # EXPO_PUBLIC_API_BASE_URL (see app/.env.example). Not hardcoded here.
+  - url: https://{apiId}.execute-api.{region}.amazonaws.com/Prod
+    description: Deployed stage (values differ per environment)
+    variables:
+      apiId:
+        default: your-api-id
+      region:
+        default: ap-northeast-1
+
+paths:
+  /ask:
+    post:
+      operationId: ask
+      summary: Ask the AI about the current location (mock stage)
+      description: >
+        Send the current location (and, later, the recorded audio) and get an
+        answer back. At the mock stage this returns a fixed answer and echoes
+        the received points. STT/LLM/TTS and API-key auth are added later.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AskRequest"
+      responses:
+        "200":
+          description: Answer generated (mock)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AskResponse"
+        "400":
+          description: Invalid request (e.g. malformed body)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+components:
+  schemas:
+    Coordinates:
+      type: object
+      description: A GPS point.
+      required: [latitude, longitude]
+      properties:
+        latitude:
+          type: number
+          format: double
+          example: 35.0
+        longitude:
+          type: number
+          format: double
+          example: 139.0
+
+    AskRequest:
+      type: object
+      description: >
+        Request body for POST /ask. `start` and `end` are the two GPS points
+        taken around the recording; the direction of travel is derived from
+        them (see docs/01_architecture.md).
+      required: [start, end]
+      properties:
+        start:
+          $ref: "#/components/schemas/Coordinates"
+        end:
+          $ref: "#/components/schemas/Coordinates"
+        # FUTURE: audio of the question (format/upload method TBD; large audio
+        # may go via S3 rather than inline). See docs/01 §9.
+
+    AskResponse:
+      type: object
+      description: Response body for POST /ask (mock stage).
+      required: [message, answer]
+      properties:
+        message:
+          type: string
+          description: Status message (mock marker).
+          example: mock backend is alive
+        answer:
+          type: string
+          description: The answer to read back to the user.
+          example: これはモックの回答です。バックエンド連携が通っています。
+        received:
+          type: object
+          description: Echo of the received points (mock only; removed later).
+          properties:
+            start:
+              $ref: "#/components/schemas/Coordinates"
+            end:
+              $ref: "#/components/schemas/Coordinates"
+        # FUTURE: audio answer (Polly). Either audio bytes or an S3 URL.
+        # See docs/01 §9.
+
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          description: Human-readable error message.
