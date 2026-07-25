@@ -87,6 +87,55 @@ app/.env.example  ← テンプレート。コミットする
 `.env` を変更したのに古い値が使われることがある。**Expo Go が古いバンドルをキャッシュ**しているのが原因。
 `npx expo start -c`（キャッシュクリア再起動）＋ **Expo Go でアプリを開き直す**とよい（→ [03 §5.3](./03_dev_environment_setup.md)）。
 
+## 4.5 OpenAPI から型を自動生成する（契約と実装を型で繋ぐ）
+
+APIの入出力の形は [OpenAPI仕様](../docs/02_api_openapi.yaml) に定義してある（フロント↔バックの契約）。
+この仕様から **TypeScriptの型を自動生成**し、`fetch` の送信データ・受信データに型を付けると、
+「契約と実装がズレたらコンパイルエラーで気づける」状態になる。
+
+### ツール選定：openapi-typescript（orval経験者向けの補足）
+
+Web（特にVue）では **orval** を使うことが多い。orvalは型に加えて **APIクライアント関数や React Query / TanStack Query のフックまで自動生成**してくれる多機能ツール。React Nativeでも動く（生成物はfetchベース）。
+
+ただし本アプリは **「モバイルは必要最低限」** 方針で、通信は `fetch` 1回で済むシンプルさ。
+React Query を導入するほどではないので、**型だけを生成する軽量な `openapi-typescript` を採用**した。
+
+| | openapi-typescript（採用） | orval |
+|---|---|---|
+| 生成物 | **型だけ**（実行時依存ゼロ） | 型＋クライアント＋React Queryフック＋モック |
+| 向く場面 | fetchを自分で書く・軽く保ちたい | React Query前提・多エンドポイント |
+| RN互換 | ○ | ○（fetchベース） |
+
+→ orvalの知識は活きるが、今回は「型だけで十分」なので軽い方を選んだ、という判断。将来エンドポイントが増えてReact Queryを入れるなら orval への移行もあり。
+
+### 使い方
+
+```sh
+# app/ で実行。docs/02 の仕様 → src/api/schema.ts を生成
+npm run gen:api
+# 中身: openapi-typescript ../docs/02_api_openapi.yaml -o src/api/schema.ts
+```
+
+- 生成された `src/api/schema.ts` は**自動生成物なので手で編集しない**。
+- 使いやすいよう `src/api/types.ts` でエイリアスを切ってある（`AskRequest`, `AskResponse` 等）。
+- **契約（docs/02）を変えたら `npm run gen:api` で型を再生成**する。
+
+### コードでの使い方
+
+```tsx
+import type { AskRequest, AskResponse } from "@/api/types";
+
+const requestBody: AskRequest = { start, end };          // 送るデータの形が保証される
+const res = await fetch(`${API_BASE_URL}/ask`, {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify(requestBody),
+});
+const data = (await res.json()) as AskResponse;          // data.answer が型安全に参照できる
+```
+
+> これで、Webでやっていた「OpenAPI起点の型安全な開発」がRNでも同じようにできる。
+
 ## 5. 本アプリでの意味
 
 - この「fetchでPOST → 応答表示」の骨格が、**アプリ↔バックエンド連携の土台**。

@@ -39,9 +39,9 @@
 |---|---|---|
 | `pre-research/` | 事前検討（構想・技術選定・方針）。判断の経緯・却下案も残す | — |
 | `learning/` | 基礎的な学習メモ（RN/JS/Android等の汎用知識） | 基礎を丁寧に・既存Web知識との対応づけ |
-| `docs/` | 本アプリ固有の設計ドキュメント（01=全体アーキテクチャ） | **初心者でもわかるように書く** |
-| `app/` | React Native (Expo) アプリ本体（**SDK 54**, TypeScript, expo-router） | `app/CLAUDE.md` はExpo自動生成 |
-| `backend/` | AWSバックエンド（SAM, Python 3.13）。現在はモック（`POST /ask` が固定応答） | `backend/README.md` に手順・命名規約 |
+| `docs/` | 本アプリ固有の設計ドキュメント（01=全体アーキテクチャ、02=API仕様OpenAPI） | **初心者でもわかるように書く** |
+| `app/` | React Native (Expo) アプリ本体（**SDK 54**, TypeScript, expo-router）。`src/api/`=OpenAPIから生成した型 | `app/CLAUDE.md` はExpo自動生成 |
+| `backend/` | AWSバックエンド（SAM, Python 3.13）。現在はモック（`POST /ask` 固定応答、`GET /health`） | `backend/README.md` に手順・命名規約 |
 
 - `learning/` と `docs/` の使い分け: 「他のRNプロジェクトでも通用する話」→ `learning/`、「このアプリ特有の話」→ `docs/`。
 - **非公開ファイル**: `pre-research/XX_*.md`（キャリア観点など個人的メモ）は `.gitignore` で除外。公開対象ではない。
@@ -65,6 +65,13 @@
 - デプロイ: `sam deploy`（`samconfig.toml` に設定済み）。ただし**デプロイ用IAM権限の整備が必要**（S3/CloudFormation等）。デプロイはユーザーが実行。
 - **AWS認証情報・アカウントID等は絶対にリポジトリに含めない**（samconfig.tomlにも秘密は書かない）。
 
+## API契約（OpenAPI）と型生成
+
+- **API仕様は `docs/02_api_openapi.yaml`（OpenAPI 3.0）が正本** — フロント↔バックの契約。現状 `POST /ask`（モック）と `GET /health`。
+- API Gatewayの `DefinitionBody` には未組込（契約・型生成・ドキュメント用途。仕様が固まったら検証用に昇格可能）。
+- **型生成**: `cd app && npm run gen:api` で `docs/02` → `app/src/api/schema.ts` を再生成。`src/api/types.ts` にエイリアス（`AskRequest`等）。
+- **契約を変えたら型を再生成** し、アプリの `fetch` が型で追従する（生成物 `schema.ts` もコミット対象）。
+
 ## 現在の進捗
 
 - [x] 構想整理・技術選定・プロジェクト方針の策定（pre-research/）
@@ -75,8 +82,9 @@
 - [x] docs/01 全体アーキテクチャ設計を作成（責務分担・音声フロー・認証・多層コスト対策・SAM）
 - [x] **backend/ にSAMモック作成**（`POST /ask` が固定応答）。AWSへデプロイ済み（ap-northeast-1）
 - [x] **アプリ↔バックエンド連携が実機で成立**（RN→公開API→応答表示。URLは `app/.env` の `EXPO_PUBLIC_API_BASE_URL`）
+- [x] API契約をOpenAPIで定義（`docs/02`）＋ `GET /health` 追加 ＋ openapi-typescriptで型生成（`app/src/api/`）
 - [ ] MVP機能2: 連続取得（watchPositionAsync）→ 2点間から進行方位を算出
-- [ ] backendに実処理を実装（APIキー認証→STT→Bedrock→Polly、段階的）
+- [ ] backendに実処理を実装（APIキー認証→STT→Bedrock→Polly、段階的）← 次の本命
 - [ ] PoC: バックグラウンド常駐＋ウェイクワードの実機検証（最優先リスク）
 
 ## 補足
