@@ -16,7 +16,7 @@
 - [x] Expo とは何か、なぜ使うのか
 - [x] 開発環境のセットアップ手順（Mac + Expo + 実機Android）
 - [x] npx / package.json / node_modules / npm install の関係
-- [ ] JSX / コンポーネント / 状態管理（React未経験部分の補完）
+- [x] JSX / コンポーネント / 状態管理（React未経験部分の補完）
 - [ ] ネイティブモジュールとブリッジの概念（なぜウェイクワードでネイティブに踏み込むのか）
 - [ ] Android の権限・バックグラウンド動作・Foreground Service の基礎
 - [ ] 位置情報・センサーの扱い方
@@ -27,3 +27,4 @@
 - [02. Expo とは何か、なぜ使うのか](./02_expo.md)
 - [03. 開発環境のセットアップ手順（Mac + Expo + 実機Android）](./03_dev_environment_setup.md)
 - [04. npx / package.json / node_modules / npm install の関係](./04_npm_npx_node_modules.md)
+- [05. JSX / コンポーネント / 状態管理（Vue経験者向け）](./05_jsx_components_state.md)

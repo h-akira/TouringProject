@@ -1,10 +1,24 @@
-import { Text, View, StyleSheet } from "react-native";
+import { useState } from "react";
+import { Text, View, Pressable, StyleSheet } from "react-native";
 
 export default function Index() {
+  // 状態（Vueの ref(0) に相当）。count が今の値、setCount が更新用の関数。
+  const [count, setCount] = useState(0);
+
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>つながった！🎉</Text>
-      <Text style={styles.subtitle}>これが index.tsx の画面です</Text>
+      <Text style={styles.count}>{count}</Text>
+
+      {/* Pressable = タップできる要素（Webの <button> に相当）。
+          押されたら setCount を呼び、状態を更新する →
+          React が関数を再実行して画面が新しい count で描き直される。 */}
+      <Pressable style={styles.button} onPress={() => setCount(count + 1)}>
+        <Text style={styles.buttonText}>+1</Text>
+      </Pressable>
+
+      <Pressable style={styles.resetButton} onPress={() => setCount(0)}>
+        <Text style={styles.buttonText}>リセット</Text>
+      </Pressable>
     </View>
   );
 }
@@ -14,17 +28,29 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    // 青いスプラッシュと明確に区別するため、あえて派手なオレンジ背景にする
-    backgroundColor: "#FF6B35",
+    backgroundColor: "#1E1E2E",
+    gap: 20,
   },
-  title: {
-    fontSize: 32,
+  count: {
+    fontSize: 72,
     fontWeight: "bold",
     color: "#FFFFFF",
   },
-  subtitle: {
-    marginTop: 12,
-    fontSize: 16,
+  button: {
+    backgroundColor: "#FF6B35",
+    paddingVertical: 14,
+    paddingHorizontal: 40,
+    borderRadius: 8,
+  },
+  resetButton: {
+    backgroundColor: "#555555",
+    paddingVertical: 10,
+    paddingHorizontal: 24,
+    borderRadius: 8,
+  },
+  buttonText: {
     color: "#FFFFFF",
+    fontSize: 20,
+    fontWeight: "bold",
   },
 });
