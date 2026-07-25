@@ -12,7 +12,6 @@ Bedrock/Transcribe/Polly はまだ呼ばず、`POST /ask` は**固定のJSON応�
 backend/
   template.yaml            SAM定義（API Gateway + Lambda）
   samconfig.toml           デプロイ設定（スタック名・リージョン・パラメータ）
-  openapi.yaml             API仕様（フロント↔バックの契約・ドキュメント。※現状はAPI Gatewayに未組込）
   src/
     handlers/
       ask.py               /ask のハンドラ（固定応答を返すモック）
@@ -20,8 +19,9 @@ backend/
     ask-post.json          sam local invoke 用のテストイベント
 ```
 
-> `openapi.yaml` は現時点では**契約・ドキュメント・型生成の源**として持つ。
-> API Gateway の `DefinitionBody` には組み込んでいない（仕様が固まったらリクエスト検証用に昇格可能）。
+> API仕様（OpenAPI）は**フロント↔バックの契約**なので `docs/02_api_openapi.yaml` に置いている。
+> 現時点では契約・ドキュメント・型生成の源として持ち、API Gateway の `DefinitionBody` には
+> 組み込んでいない（仕様が固まったらリクエスト検証用に昇格可能）。
 
 ## 前提ツール
 

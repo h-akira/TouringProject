@@ -21,6 +21,7 @@
 ## 想定ドキュメント（随時追加）
 
 - [x] 全体アーキテクチャ（アプリ → API Gateway → Lambda → Bedrock / Transcribe / Polly）
+- [x] API仕様（OpenAPI）— フロント↔バックの契約（`02_api_openapi.yaml`）
 - [ ] 音声処理パイプラインの設計（ウェイクワード検知 → 録音 → STT → 応答生成 → TTS → 再生）
 - [ ] 位置・進行方位の算出設計（GPS 2点間から方位を求める）
 - [ ] バックグラウンド常駐の設計（Foreground Service）
@@ -29,3 +30,4 @@
 ## 索引
 
 - [01. 全体アーキテクチャ（責務分担とデータフロー）](./01_architecture.md)
+- [02. API仕様（OpenAPI）— フロント↔バックの契約](./02_api_openapi.yaml)
