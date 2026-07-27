@@ -10,7 +10,19 @@
 - 「開発を進めながら学習する」方針に沿い、**必要になった時点で該当トピックを書き足していく**。
   最初から網羅しようとしない。
 
+## 番号の付け方
+
+扱う領域で番号帯を分ける。開発者はモバイルが未経験・AWSは得意なので、
+**同じ「基礎メモ」でも前提知識のレベルが大きく違う**ため。
+
+| 番号帯 | 領域 |
+|---|---|
+| **01〜49** | モバイル / フロントエンド（React Native・Expo・Android） |
+| **51〜99** | バックエンド / AI（AWS・Bedrock・AgentCore） |
+
 ## 想定トピック（順不同・随時追加）
+
+**モバイル / フロントエンド（01〜）**
 
 - [x] React Native とは何か（Web/Vue経験者向けの導入）
 - [x] Expo とは何か、なぜ使うのか
@@ -23,7 +35,16 @@
 - [ ] Android の権限・バックグラウンド動作・Foreground Service の基礎
 - [ ] センサー（方位・進行方向の算出）
 
+**バックエンド / AI（51〜）**
+
+- [x] AIエージェントと AgentCore（Lambda経験者向け）
+- [ ] プロンプト設計の基礎（システムプロンプト / 音声読み上げ向けの制約）
+- [ ] MCP（Model Context Protocol）とツール利用
+- [ ] STT / TTS（Transcribe・Polly）の扱い方
+
 ## 索引
+
+### モバイル / フロントエンド
 
 - [01. React Native とは（Web/Vue経験者向けの導入）](./01_react_native_for_web_devs.md)
 - [02. Expo とは何か、なぜ使うのか](./02_expo.md)
@@ -32,3 +53,7 @@
 - [05. JSX / コンポーネント / 状態管理（Vue経験者向け）](./05_jsx_components_state.md)
 - [06. 位置情報の扱い方（権限フロー / expo-location）](./06_location_permissions.md)
 - [07. API連携（fetch でバックエンドと通信 / 環境変数）](./07_api_integration.md)
+
+### バックエンド / AI
+
+- [51. AIエージェントと Amazon Bedrock AgentCore（Lambda経験者向け）](./51_ai_agent_and_agentcore.md)
