@@ -280,7 +280,14 @@ flowchart LR
 | 履歴の永続性 | ❌ **プロセス内メモリのみ**（タイムアウト・再起動で消える） |
 
 > ⚠️ 履歴が消えた後に同じIDで呼んでも**エラーにならず、黙って新しい会話として始まる**。
-> セッションを越えた記憶が要るなら **AgentCore Memory** が必要。
+
+**ただしこの制約は本プロジェクトでは問題にならない。**
+要件は「一問一答＋α」で、**連続して聞くときに文脈が繋がればよい**。
+15分以上あけて前の会話の続きを求める使い方は想定しないため、
+**AgentCore Memory（セッションを越えた永続記憶）は採用しない。**
+
+> 将来「走行ログを残す」等が要件化したら、それは**会話の記憶ではなくDB連携**の課題。
+> AgentCore Memory とは別物として設計する。
 
 **→ 実測ログ・検証設計の詳細は [FINDINGS.md](FINDINGS.md)。**
 
@@ -309,14 +316,12 @@ AWSへのデプロイ済み。Runtime `touringAgent_agentcore_trg_dev_ask` が `
 - [x] ~~IaCの方針衝突~~ → **CDK併用を容認。docs/01 §8 を更新済み**（qualifier `trg-dev` で他CDKと分離）
 - [ ] **Lambdaを挟むか否か**（§7の案A/案B）— 認証方式と流量制限の実現性を確認
 - [ ] **アイドル課金の実額**（質問間隔を空けた場合のコスト挙動を実測）
-- [ ] **セッション断（タイムアウト・再起動）時の挙動と、AgentCore Memory の要否**
 
 ### その次
 
 - [ ] `idleRuntimeSessionTimeout` を短くした場合の挙動（最小60秒。会話が切れる体感）
 - [ ] アプリ側のセッションID発行でタイムアウトを可変にできるか（§5の方式）
 - [ ] `StopRuntimeSession` による明示的停止でコストを抑えられるか
-- [ ] **AgentCore Memory**（セッションを越えた記憶）が本アプリに要るか
 - [ ] ツール実行（WebSearch等）の実装方法 — 本命の拡張要件
 - [ ] 最小権限ポリシーへの絞り込み（現在は PowerUser + IAMFullAccess。CloudTrailで実使用権限を確認して絞る）
 - [ ] 既存の `backend/`（SAM）と `touringAgent/`（CDK）の連携方法（相互参照が要る場合）
@@ -329,6 +334,7 @@ AWSへのデプロイ済み。Runtime `touringAgent_agentcore_trg_dev_ask` が `
 | エージェントソース | **S3ソース（.zip）** | ◯ 高い（要件に合致） |
 | モデル | `jp.anthropic.claude-sonnet-4-6` | ✅ 確定（[../bedrock/](../bedrock/)） |
 | IaC | **CDK**（qualifier `trg-dev`）。backend/ はSAMのまま | ✅ 確定 |
+| 会話の記憶 | **セッション内のみ**（AgentCore Memory は使わない） | ✅ 確定（要件が「一問一答＋α」のため） |
 | Lambdaの要否 | **未決** | ✗ 調査次第 |
 | タイムアウト値 | 未決 | ✗ 実測次第 |
 
