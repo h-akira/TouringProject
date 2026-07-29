@@ -1,8 +1,22 @@
 # Amazon Bedrock AgentCore 調査
 
-> 実施日: 2026-07-25 / 対象アカウント: AWSプロファイル `touring` / リージョン: ap-northeast-1
+> 実施日: 2026-07-25〜29 / 対象アカウント: AWSプロファイル `touring` / リージョン: ap-northeast-1
 > **目的**: 「1問1答で終わらず、続けて質問できる」会話継続を実現する。あわせて将来の拡張（WebSearch等のツール利用）に備える。
 > **前提**: Bedrockモデル自体の調査は [../bedrock/](../bedrock/) を参照。
+
+## このディレクトリの構成
+
+| ファイル | 役割 | こんなとき |
+|---|---|---|
+| **README.md**（本書） | **なぜそうしたか**（設計判断・技術選定・概念） | 判断の経緯を知りたい |
+| [SETUP.md](SETUP.md) | **どう作るか**（コマンド手順・ハマりどころ） | ゼロから再現したい |
+| [FINDINGS.md](FINDINGS.md) | **何が分かったか**（実測ログ・検証設計） | 根拠となる生データを見たい |
+| [check_agentcore.sh](check_agentcore.sh) | 環境確認（読み取り専用） | AgentCoreが使えるか調べる |
+| [try_session.sh](try_session.sh) | 会話継続の検証（ローカル） | 手元で再現する |
+| [try_deployed.sh](try_deployed.sh) | 会話継続の検証（デプロイ済み） | AWS上で再現する |
+
+> 基礎知識（そもそもエージェントとは何か）は [learning/51](../../learning/51_ai_agent_and_agentcore.md) にある。
+> ここは**本プロジェクト固有の調査記録**に徹する。
 
 ## 0. この調査に至った経緯
 
@@ -182,7 +196,7 @@ client.create_agent_runtime(
 ```
 
 つまり**AgentCoreのタイムアウトを長め（例:30分）に設定しておき、実際の区切りはアプリ側のID発行で制御**すれば、
-アプリから可変にする要件も満たせる。→ 検証で確認したい（§8）。
+アプリから可変にする要件も満たせる。→ 未検証（§10）。
 
 ## 6. コスト構造（重要）
 
@@ -208,7 +222,7 @@ client.create_agent_runtime(
 | 質問の合間 | 課金ゼロ | **課金対象** |
 
 > ⚠️ **正確な単価は未確認**（AWS料金ページ参照が必要）。
-> 「アイドル中も課金対象」という構造は確認済みだが、**実額の試算は未了**。→ §8で実測したい。
+> 「アイドル中も課金対象」という構造は確認済みだが、**実額の試算は未了**。→ [FINDINGS.md](FINDINGS.md) §6 の未検証項目。
 
 ### 対策の方向性（要検証）
 
@@ -252,142 +266,46 @@ flowchart LR
 | 入力量の検証 | エージェント内で実施 | Lambdaで事前に弾ける |
 
 > **docs/01 §6 でAPIキー方式、§7で Usage Plan による流量制限を設計している。**
-> 案Aだとこれらの前提が崩れるため、**案Bが有力**だが、AgentCoreの認証・流量制御の実力次第。→ §8で検証。
+> 案Aだとこれらの前提が崩れるため、**案Bが有力**だが、AgentCoreの認証・流量制御の実力次第。→ §10 の未決事項。
 
-## 8. 会話継続の実証（実測・ローカル）
+## 8. 実証結果（要約）
 
-**結論: 同じ `runtimeSessionId` を渡せば会話は継続する。実測で確認済み。**
+**同じ `runtimeSessionId` を渡せば会話は継続する。ローカル・デプロイ済みの両方で確認済み。**
 
-再現スクリプト: [`try_session.sh`](try_session.sh)
+| 検証項目 | 結果 |
+|---|---|
+| 同一セッションIDで文脈が継続するか | ✅ する |
+| 別セッションIDで文脈が漏れないか | ✅ 漏れない（対照実験で確認） |
+| 3ターン以上遡れるか | ✅ 遡れる |
+| 履歴の永続性 | ❌ **プロセス内メモリのみ**（タイムアウト・再起動で消える） |
 
-### 8.1 検証方法
+> ⚠️ 履歴が消えた後に同じIDで呼んでも**エラーにならず、黙って新しい会話として始まる**。
+> セッションを越えた記憶が要るなら **AgentCore Memory** が必要。
 
-指示語（「それ」）だけを含む質問を投げる。**前のターンを覚えていなければ答えられない**質問なので、
-正しく答えられれば文脈が保持されている証拠になる。
+**→ 実測ログ・検証設計の詳細は [FINDINGS.md](FINDINGS.md)。**
 
-まぐれ当たりを排除するため、**対照実験**として同じ質問を新しいセッションIDでも投げる。
+## 9. デプロイ（要約）
 
-### 8.2 結果
+AWSへのデプロイ済み。Runtime `touringAgent_agentcore_trg_dev_ask` が `READY`。
 
-| | 同一セッションID | 別セッションID（対照） |
-|---|---|---|
-| Q「それは何県にありますか？」 | ✅ 「富士山は静岡県と山梨県の2県にまたがっています」 | ✅ 「**『それ』が何を指しているか判断できません**」 |
+| 項目 | 値 |
+|---|---|
+| CDK qualifier | **`trg-dev`**（他CDKと共存させるため分離） |
+| toolkitスタック | `CDKToolkit-trg-dev` |
+| 実行ポリシー | PowerUser + IAMFullAccess（**Adminを避ける**。後で絞る） |
+| qualifierの渡し方 | `cdk.json` の `@aws-cdk/core:bootstrapQualifier` |
 
-対照群が**正しく失敗している**点が重要。文脈が本当にセッション単位で分離されている。
+`agentcore deploy` は synth では qualifier を尊重するが、**bootstrapチェックはデフォルト名を見に行く**
+（[aws-cdk#26588](https://github.com/aws/aws-cdk/issues/26588) と同種）。ハマりどころ。
 
-### 8.3 3ターン以上でも遡れる
-
-```
-Q1: 静岡県の名物を1つ教えて
-A1: 静岡おでんが有名です。…
-
-Q2: それはいくらくらい？
-A2: 1串あたり100円前後が相場で…        ← 1ターン前を参照
-
-Q3: 最初に聞いたのは何県だった？
-A3: 静岡県です。                        ← 2ターン前まで遡れる
-```
-
-直前だけでなく**会話全体の履歴**が保持されている。
-
-### 8.4 ログで見るセッション分離
-
-```
-NEW creating agent for session: continuity-...-a
-    session=continuity-...-a turns_before=0
-    session=continuity-...-a turns_before=2     ← 履歴が積み上がる
-NEW creating agent for session: continuity-...-b
-    session=continuity-...-b turns_before=0     ← 対照群は常に0
-NEW creating agent for session: multi-...
-    session=multi-... turns_before=0
-    session=multi-... turns_before=2
-    session=multi-... turns_before=4            ← 3ターン分
-```
-
-`turns_before` は1往復ごとに2ずつ増える（user + assistant）。**IDごとに独立**しており混線しない。
-
-### 8.5 ⚠️ この履歴は「プロセス内メモリ」である
-
-CLIが生成するコードのコメントに明記されている通り、履歴は **in-process**。
-
-- microVMが生きている間だけ保持される
-- **アイドルタイムアウト（既定15分）や再起動で消える**
-- 消えた後に同じIDで呼んでも、**新しい会話として始まる**（エラーにはならない）
-
-→ 「30分前の会話の続き」を実現したいなら **AgentCore Memory**（永続記憶）が要る。§9の課題。
-
-## 9. AWSへのデプロイ（実施済み）
-
-**結論: デプロイ成功。クラウド上でも会話継続を確認。** 再現スクリプト: [`try_deployed.sh`](try_deployed.sh)
-
-### 9.1 CDK bootstrap の方針（重要）
-
-他プロジェクト（FinanceDashboard）と同じく、**qualifier を分けて同一アカウントで複数CDKを共存**させる。
-
-```sh
-cdk bootstrap \
-  --toolkit-stack-name CDKToolkit-trg-dev \
-  --qualifier trg-dev \
-  --cloudformation-execution-policies "arn:aws:iam::aws:policy/PowerUserAccess,arn:aws:iam::aws:policy/IAMFullAccess"
-```
-
-| 項目 | 値 | 理由 |
-|---|---|---|
-| qualifier | `trg-dev` | **ハイフン可**（実測確認）。プロジェクト+環境で衝突を避ける |
-| toolkitスタック名 | `CDKToolkit-trg-dev` | デフォルトの `CDKToolkit` と分離 |
-| 実行ポリシー | PowerUser + IAMFullAccess | **AdministratorAccess を避ける**。まず広めに通し、後で絞る段階的方針 |
-
-> ⚠️ デフォルトの `cdk bootstrap` は qualifier が `hnb659fds` 固定で **AdministratorAccess** が付く。これを避けるのが目的。
-
-### 9.2 qualifier は `cdk.json` の context で渡す
-
-```json
-{ "context": { "@aws-cdk/core:bootstrapQualifier": "trg-dev" } }
-```
-
-**`agentcore deploy` もこれを尊重する**（生成された `cdk.out` に `/cdk-bootstrap/trg-dev/version` が出ることを確認）。
-CLIを捨てて `cdk deploy` を直接叩く必要はない。
-
-### 9.3 ⚠️ ハマった点：CLIがデフォルト名でbootstrapしようとする
-
-`agentcore deploy` は **synth では qualifier を尊重するが、bootstrap チェックではデフォルトの `CDKToolkit` を見に行く**。
-
-```
-[STEP] Check bootstrap status
-Bootstrap needed, auto-confirming...     ← 勝手にデフォルト名でbootstrapを試行
-  └─ CDKToolkit
-     🛑 The resources [StagingBucket] already exist ...
-```
-
-[aws-cdk#26588](https://github.com/aws/aws-cdk/issues/26588) と同種の既知問題。
-
-**対処**: デフォルト qualifier のリソース（S3バケット等）を**完全に消してから**デプロイする。
-スタックを削除しても **S3バケットは `Retain` 属性で残る**ので、バケットも明示的に削除する必要がある。
-結果としてCLIがデフォルト `CDKToolkit` を作り直すが、**実際のデプロイには `cdk-trg-dev-cfn-exec-role` が使われる**ので実害はない。
-
-### 9.4 実測結果（デプロイ済みRuntime）
-
-| | 同一セッションID | 別セッションID（対照） |
-|---|---|---|
-| Q「それは何県にありますか？」 | ✅ 「**先ほどお伝えしたとおり**、静岡県と山梨県の2県に…」 | ✅ 「『それ』が何を指しているか判断できません」 |
-
-**「先ほどお伝えしたとおり」** という表現が、前ターンを認識している決定的証拠。ローカルと同じ挙動。
-
-### 9.5 その他の実務メモ
-
-- `agentcore deploy` は数分かかる。**タイムアウトしてもCloudFormation側は進行し続ける**ので、
-  `aws cloudformation wait stack-create-complete` で待つ。失敗と誤認しないこと。
-- 上記でCLIを中断すると `agentcore/.cli/deployed-state.json` が更新されず、
-  **`agentcore invoke` が "No deployed targets found" になる**。Runtime自体は動いているので、
-  boto3の `invoke_agent_runtime` で直接叩ける（[`try_deployed.sh`](try_deployed.sh) がその方式）。
-- **`runtimeSessionId` は33文字以上必要**（短いと ValidationException）。
+**→ 手順・トラブルシューティングは [SETUP.md](SETUP.md)。**
 
 ## 10. 未検証・次にやること
 
 ### 最優先（設計判断に直結）
 
-- [x] ~~`runtimeSessionId` で会話が継続することを実証~~ → **§8で完了（ローカル）**
-- [x] ~~AWSへデプロイし、クラウド上でも通ることを確認~~ → **§9で完了**
+- [x] ~~`runtimeSessionId` で会話が継続することを実証~~ → **完了（[FINDINGS.md](FINDINGS.md)）**
+- [x] ~~AWSへデプロイし、クラウド上でも通ることを確認~~ → **完了（[SETUP.md](SETUP.md) §6）**
 - [x] ~~IaCの方針衝突~~ → **CDK併用を容認。docs/01 §8 を更新済み**（qualifier `trg-dev` で他CDKと分離）
 - [ ] **Lambdaを挟むか否か**（§7の案A/案B）— 認証方式と流量制限の実現性を確認
 - [ ] **アイドル課金の実額**（質問間隔を空けた場合のコスト挙動を実測）
