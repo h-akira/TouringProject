@@ -111,7 +111,7 @@ flowchart LR
 
 ## 5.1 ⚠️ AgentCore 採用による構成変更（重要）
 
-**「続けて質問できる」ことを要件に加えた結果（[00_user_stories.md](00_user_stories.md) US-2）、
+**「続けて質問できる」ことを要件に加えた結果（[00_user_stories.md](00_user_stories.md) US-1-002）、
 会話の司令塔は Lambda から **Amazon Bedrock AgentCore** に移った。**
 
 Bedrock の Converse API はステートレスで、会話を継続するには毎回全履歴を送り直す必要がある。
@@ -132,7 +132,8 @@ flowchart LR
     GW --> L["Lambda<br/>（門番）<br/>入力量の検証"]
     L -->|"sessionId + 質問"| AC["AgentCore Runtime<br/>（司令塔）<br/>会話の文脈を保持"]
     AC --> B["Bedrock<br/>回答生成"]
-    AC -.->|"将来"| T["ツール<br/>（Web検索・メモ等）"]
+    AC --> W["Web検索<br/>（US-1-004・MVPに含む）"]
+    AC -.->|"将来"| T["メモ保存等<br/>（US-3-001）"]
 ```
 
 ### なぜ Lambda を残すのか
@@ -156,7 +157,7 @@ def save_memo(text: str) -> str:
     """ライダーのメモを保存する"""   # Lambda or DynamoDB を呼ぶ
 ```
 
-今やるべきは「後からツールを足せる状態を保つ」ことだけ（[00_user_stories.md](00_user_stories.md) §6）。
+今やるべきは「後からツールを足せる状態を保つ」ことだけ（[00_user_stories.md](00_user_stories.md) 補足B）。
 
 ## 6. 認証：APIキー方式（アプリ画面から入力）
 
