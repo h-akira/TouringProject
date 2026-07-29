@@ -39,7 +39,7 @@
 |---|---|---|
 | `pre-research/` | 事前検討（構想・技術選定・方針）。判断の経緯・却下案も残す。`bedrock/`=モデル調査、`agentcore/`=会話継続の基盤調査（実行可能な検証スクリプト付き） | — |
 | `learning/` | 基礎的な学習メモ（汎用知識）。**01〜49=モバイル/フロント、51〜99=バックエンド/AI** | 基礎を丁寧に・既存Web知識との対応づけ |
-| `docs/` | 本アプリ固有の設計ドキュメント（01=全体アーキテクチャ、02=API仕様OpenAPI） | **初心者でもわかるように書く** |
+| `docs/` | 本アプリ固有の設計ドキュメント（**00=要件定義（最上位）**、01=全体アーキテクチャ、02=API仕様OpenAPI） | **初心者でもわかるように書く** |
 | `app/` | React Native (Expo) アプリ本体（**SDK 54**, TypeScript, expo-router）。`src/api/`=OpenAPIから生成した型 | `app/CLAUDE.md` はExpo自動生成 |
 | `backend/` | AWSバックエンド（SAM, Python 3.13）。現在はモック（`POST /ask` 固定応答、`GET /health`） | `backend/README.md` に手順・命名規約 |
 | `touringAgent/` | **AgentCoreエージェント本体**（Strands, CodeZip）。会話継続の中核。`app/<名前>/main.py` が実装、`agentcore/` がCLI設定とCDK | `agentcore` CLIで生成・デプロイ |
@@ -126,10 +126,24 @@ grep -rnE '\b[0-9]{12}\b|\b(o-[a-z0-9]{10,}|r-[a-z0-9]{4,}|p-[a-z0-9]{8,})\b|AKI
 - [x] API契約をOpenAPIで定義（`docs/02`）＋ `GET /health` 追加 ＋ openapi-typescriptで型生成（`app/src/api/`）
 - [x] **Bedrock事前調査**（`pre-research/bedrock/`）。ap-northeast-1で `jp.anthropic.claude-sonnet-4-6` が利用可能と実証。**Claude 5系は当アカウント未提供**
 - [x] **AgentCore調査**（`pre-research/agentcore/`）。会話継続の基盤として **AgentCore採用を決定**。エージェントソースは **S3ソース(.zip)** 方針（Docker不要）
-- [ ] **AgentCoreで最小エージェントをデプロイし、`runtimeSessionId` による会話継続を実証** ← 次の本命
-- [ ] **Lambdaを挟むか否かの決定**（AgentCoreが直接エンドポイントを持つため。認証方式・流量制限の実現性次第）
-- [ ] MVP機能2: 連続取得（watchPositionAsync）→ 2点間から進行方位を算出
-- [ ] PoC: バックグラウンド常駐＋ウェイクワードの実機検証（最優先リスク）
+- [x] **AgentCoreで最小エージェントをデプロイし、`runtimeSessionId` による会話継続を実証**（`touringAgent/`。対照実験込みで確認）
+- [x] **Lambdaを挟むか否かの決定** → **当面は挟む**（流量制限がAPI Gateway依存のため。`pre-research/agentcore/AUTH.md`）
+- [x] **要件定義を作成**（`docs/00_user_stories.md`）。MVPスコープを確定
+- [ ] **MVP: アプリ → Lambda → AgentCore → Bedrock を繋ぐ** ← **いま最優先**（US-1〜3）
+- [ ] MVP機能2: 連続取得（watchPositionAsync）→ 2点間から進行方位を算出（US-6）
+- [ ] 音声化（STT/TTS）（US-4/5）
+- [ ] PoC: バックグラウンド常駐＋ウェイクワードの実機検証（US-7・**最大の技術リスク**）
+
+### いま作っているもの（MVPのスコープ）
+
+**「現在地とともに質問 → AIが答える」をスマホアプリで実現する**（`docs/00_user_stories.md` US-1〜3）。
+
+- ✅ やる: 位置情報＋テキスト質問 → AI回答、会話の継続
+- ❌ **今はやらない**: 音声（STT/TTS）、ウェイクワード、方位算出、メモ機能、Web検索
+- 音声もウェイクワードも P1。**まず画面で入力・表示する形でコア体験を成立させる**。
+
+> ⚠️ **メモ機能（US-9）は将来必要だが今は作らない。** 学習しながらの開発では初手から重い。
+> ただし**後から `@tool` を足すだけで対応できる構造**は保つ（それがAgentCoreを選んだ理由のひとつ）。
 
 ### 会話継続の方針（重要）
 

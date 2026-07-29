@@ -1,7 +1,8 @@
 # 全体アーキテクチャ
 
 > このドキュメントは、アプリ全体の**責務分担（ローカル vs AWS）**と**データの流れ**を定める。
-> 前提となる構想・技術選定は [pre-research/](../pre-research/) を参照。
+> **上位に [00_user_stories.md](00_user_stories.md)（要件定義）がある。** 設計で迷ったらそちらに立ち返る。
+> 技術選定の検討経緯は [pre-research/](../pre-research/) を参照。
 > 初心者でも追えるよう、まず全体像から入り、各役割を順に説明する。
 
 ## 1. ひとことで言うと
@@ -103,10 +104,59 @@ flowchart LR
 
 - アプリは録音音声を**そのままPOST**する（STTはAWS側）。
 - 回答は AWS で **Polly により音声化して返す**（アプリは再生するだけ）。
-- **Lex は使わない**。STT/LLM/TTS の3サービス＋Lambda＋API Gatewayで構成。
+- **Lex は使わない**。意図理解はLLM自身が行う。
 - 認証は **APIキー方式**（アプリ画面から入力、ハードコードしない）。詳細は §6。
 - 悪用・コスト暴走対策は **多層で設計**（流量制限＋予算超過で自動遮断）。詳細は §7。
-- 構成管理（IaC）は **AWS SAM 単体**。詳細は §8。
+- 構成管理（IaC）は **SAM＋CDKの併用**。詳細は §8。
+
+## 5.1 ⚠️ AgentCore 採用による構成変更（重要）
+
+**「続けて質問できる」ことを要件に加えた結果（[00_user_stories.md](00_user_stories.md) US-2）、
+会話の司令塔は Lambda から **Amazon Bedrock AgentCore** に移った。**
+
+Bedrock の Converse API はステートレスで、会話を継続するには毎回全履歴を送り直す必要がある。
+それを自前でやるより、セッション管理がネイティブな AgentCore に任せる方が筋がよいと判断した。
+（判断の経緯は [pre-research/agentcore/](../pre-research/agentcore/)）
+
+### Lambda の役割が変わった
+
+| | 当初の設計 | **現在** |
+|---|---|---|
+| **Lambda** | **司令塔**（STT→LLM→TTSを順に呼ぶ） | **門番**（認証・流量制限・入力検証してAgentCoreに渡す） |
+| 会話の組み立て | Lambda が履歴を管理 | **AgentCore がセッションで保持** |
+| Bedrock呼び出し | Lambda から直接 | **AgentCore 内のエージェントから** |
+
+```mermaid
+flowchart LR
+    App["アプリ"] -->|"APIキー"| GW["API Gateway<br/>流量制限"]
+    GW --> L["Lambda<br/>（門番）<br/>入力量の検証"]
+    L -->|"sessionId + 質問"| AC["AgentCore Runtime<br/>（司令塔）<br/>会話の文脈を保持"]
+    AC --> B["Bedrock<br/>回答生成"]
+    AC -.->|"将来"| T["ツール<br/>（Web検索・メモ等）"]
+```
+
+### なぜ Lambda を残すのか
+
+AgentCore は**それ自体がエンドポイントを持つ**ため、アプリから直接呼ぶこともできる
+（Cognito + JWT。実現可能性は確認済み）。それでも当面 Lambda を挟むのは:
+
+- **流量制限**（§7）は API Gateway の Usage Plan に依存しており、AgentCore に同等の機能が見当たらない
+- **入力量の上限**（§7.1）を、Bedrockを呼ぶ前に手前で弾ける
+- **後から外すのは容易だが、外した後で足すのは再設計**になる
+
+→ 詳細な比較は [pre-research/agentcore/AUTH.md](../pre-research/agentcore/AUTH.md)。
+
+### 将来の拡張（メモ機能など）
+
+**エージェントに「ツール」を足す形で拡張する。** この構成を選んだ理由のひとつ。
+
+```python
+@tool
+def save_memo(text: str) -> str:
+    """ライダーのメモを保存する"""   # Lambda or DynamoDB を呼ぶ
+```
+
+今やるべきは「後からツールを足せる状態を保つ」ことだけ（[00_user_stories.md](00_user_stories.md) §6）。
 
 ## 6. 認証：APIキー方式（アプリ画面から入力）
 
