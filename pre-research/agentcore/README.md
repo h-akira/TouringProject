@@ -254,13 +254,144 @@ flowchart LR
 > **docs/01 §6 でAPIキー方式、§7で Usage Plan による流量制限を設計している。**
 > 案Aだとこれらの前提が崩れるため、**案Bが有力**だが、AgentCoreの認証・流量制御の実力次第。→ §8で検証。
 
-## 8. 未検証・次にやること
+## 8. 会話継続の実証（実測・ローカル）
+
+**結論: 同じ `runtimeSessionId` を渡せば会話は継続する。実測で確認済み。**
+
+再現スクリプト: [`try_session.sh`](try_session.sh)
+
+### 8.1 検証方法
+
+指示語（「それ」）だけを含む質問を投げる。**前のターンを覚えていなければ答えられない**質問なので、
+正しく答えられれば文脈が保持されている証拠になる。
+
+まぐれ当たりを排除するため、**対照実験**として同じ質問を新しいセッションIDでも投げる。
+
+### 8.2 結果
+
+| | 同一セッションID | 別セッションID（対照） |
+|---|---|---|
+| Q「それは何県にありますか？」 | ✅ 「富士山は静岡県と山梨県の2県にまたがっています」 | ✅ 「**『それ』が何を指しているか判断できません**」 |
+
+対照群が**正しく失敗している**点が重要。文脈が本当にセッション単位で分離されている。
+
+### 8.3 3ターン以上でも遡れる
+
+```
+Q1: 静岡県の名物を1つ教えて
+A1: 静岡おでんが有名です。…
+
+Q2: それはいくらくらい？
+A2: 1串あたり100円前後が相場で…        ← 1ターン前を参照
+
+Q3: 最初に聞いたのは何県だった？
+A3: 静岡県です。                        ← 2ターン前まで遡れる
+```
+
+直前だけでなく**会話全体の履歴**が保持されている。
+
+### 8.4 ログで見るセッション分離
+
+```
+NEW creating agent for session: continuity-...-a
+    session=continuity-...-a turns_before=0
+    session=continuity-...-a turns_before=2     ← 履歴が積み上がる
+NEW creating agent for session: continuity-...-b
+    session=continuity-...-b turns_before=0     ← 対照群は常に0
+NEW creating agent for session: multi-...
+    session=multi-... turns_before=0
+    session=multi-... turns_before=2
+    session=multi-... turns_before=4            ← 3ターン分
+```
+
+`turns_before` は1往復ごとに2ずつ増える（user + assistant）。**IDごとに独立**しており混線しない。
+
+### 8.5 ⚠️ この履歴は「プロセス内メモリ」である
+
+CLIが生成するコードのコメントに明記されている通り、履歴は **in-process**。
+
+- microVMが生きている間だけ保持される
+- **アイドルタイムアウト（既定15分）や再起動で消える**
+- 消えた後に同じIDで呼んでも、**新しい会話として始まる**（エラーにはならない）
+
+→ 「30分前の会話の続き」を実現したいなら **AgentCore Memory**（永続記憶）が要る。§9の課題。
+
+## 9. AWSへのデプロイ（実施済み）
+
+**結論: デプロイ成功。クラウド上でも会話継続を確認。** 再現スクリプト: [`try_deployed.sh`](try_deployed.sh)
+
+### 9.1 CDK bootstrap の方針（重要）
+
+他プロジェクト（FinanceDashboard）と同じく、**qualifier を分けて同一アカウントで複数CDKを共存**させる。
+
+```sh
+cdk bootstrap \
+  --toolkit-stack-name CDKToolkit-trg-dev \
+  --qualifier trg-dev \
+  --cloudformation-execution-policies "arn:aws:iam::aws:policy/PowerUserAccess,arn:aws:iam::aws:policy/IAMFullAccess"
+```
+
+| 項目 | 値 | 理由 |
+|---|---|---|
+| qualifier | `trg-dev` | **ハイフン可**（実測確認）。プロジェクト+環境で衝突を避ける |
+| toolkitスタック名 | `CDKToolkit-trg-dev` | デフォルトの `CDKToolkit` と分離 |
+| 実行ポリシー | PowerUser + IAMFullAccess | **AdministratorAccess を避ける**。まず広めに通し、後で絞る段階的方針 |
+
+> ⚠️ デフォルトの `cdk bootstrap` は qualifier が `hnb659fds` 固定で **AdministratorAccess** が付く。これを避けるのが目的。
+
+### 9.2 qualifier は `cdk.json` の context で渡す
+
+```json
+{ "context": { "@aws-cdk/core:bootstrapQualifier": "trg-dev" } }
+```
+
+**`agentcore deploy` もこれを尊重する**（生成された `cdk.out` に `/cdk-bootstrap/trg-dev/version` が出ることを確認）。
+CLIを捨てて `cdk deploy` を直接叩く必要はない。
+
+### 9.3 ⚠️ ハマった点：CLIがデフォルト名でbootstrapしようとする
+
+`agentcore deploy` は **synth では qualifier を尊重するが、bootstrap チェックではデフォルトの `CDKToolkit` を見に行く**。
+
+```
+[STEP] Check bootstrap status
+Bootstrap needed, auto-confirming...     ← 勝手にデフォルト名でbootstrapを試行
+  └─ CDKToolkit
+     🛑 The resources [StagingBucket] already exist ...
+```
+
+[aws-cdk#26588](https://github.com/aws/aws-cdk/issues/26588) と同種の既知問題。
+
+**対処**: デフォルト qualifier のリソース（S3バケット等）を**完全に消してから**デプロイする。
+スタックを削除しても **S3バケットは `Retain` 属性で残る**ので、バケットも明示的に削除する必要がある。
+結果としてCLIがデフォルト `CDKToolkit` を作り直すが、**実際のデプロイには `cdk-trg-dev-cfn-exec-role` が使われる**ので実害はない。
+
+### 9.4 実測結果（デプロイ済みRuntime）
+
+| | 同一セッションID | 別セッションID（対照） |
+|---|---|---|
+| Q「それは何県にありますか？」 | ✅ 「**先ほどお伝えしたとおり**、静岡県と山梨県の2県に…」 | ✅ 「『それ』が何を指しているか判断できません」 |
+
+**「先ほどお伝えしたとおり」** という表現が、前ターンを認識している決定的証拠。ローカルと同じ挙動。
+
+### 9.5 その他の実務メモ
+
+- `agentcore deploy` は数分かかる。**タイムアウトしてもCloudFormation側は進行し続ける**ので、
+  `aws cloudformation wait stack-create-complete` で待つ。失敗と誤認しないこと。
+- 上記でCLIを中断すると `agentcore/.cli/deployed-state.json` が更新されず、
+  **`agentcore invoke` が "No deployed targets found" になる**。Runtime自体は動いているので、
+  boto3の `invoke_agent_runtime` で直接叩ける（[`try_deployed.sh`](try_deployed.sh) がその方式）。
+- **`runtimeSessionId` は33文字以上必要**（短いと ValidationException）。
+
+## 10. 未検証・次にやること
 
 ### 最優先（設計判断に直結）
 
-- [ ] **最小エージェントをS3ソースでデプロイし、`runtimeSessionId` で会話が継続することを実証**
+- [x] ~~`runtimeSessionId` で会話が継続することを実証~~ → **§8で完了（ローカル）**
+- [x] ~~AWSへデプロイし、クラウド上でも通ることを確認~~ → **§9で完了**
+- [x] ~~IaCの方針衝突~~ → **CDK併用を容認。docs/01 §8 を更新済み**（qualifier `trg-dev` で他CDKと分離）
 - [ ] **Lambdaを挟むか否か**（§7の案A/案B）— 認証方式と流量制限の実現性を確認
 - [ ] **アイドル課金の実額**（質問間隔を空けた場合のコスト挙動を実測）
+- [ ] **セッション断（タイムアウト・再起動）時の挙動と、AgentCore Memory の要否**
 
 ### その次
 
@@ -269,16 +400,17 @@ flowchart LR
 - [ ] `StopRuntimeSession` による明示的停止でコストを抑えられるか
 - [ ] **AgentCore Memory**（セッションを越えた記憶）が本アプリに要るか
 - [ ] ツール実行（WebSearch等）の実装方法 — 本命の拡張要件
-- [ ] エージェントのコードで使うフレームワーク（Strands Agents / LangGraph / 素のPython）の選定
-- [ ] 既存の `backend/`（SAM）とAgentCoreをどう共存させるか（IaC の扱い）
+- [ ] 最小権限ポリシーへの絞り込み（現在は PowerUser + IAMFullAccess。CloudTrailで実使用権限を確認して絞る）
+- [ ] 既存の `backend/`（SAM）と `touringAgent/`（CDK）の連携方法（相互参照が要る場合）
 
-## 9. 現時点の暫定方針
+## 11. 現時点の暫定方針
 
 | 項目 | 暫定 | 確度 |
 |---|---|---|
 | セッション管理 | **AgentCore Runtime** | ✅ 確定 |
 | エージェントソース | **S3ソース（.zip）** | ◯ 高い（要件に合致） |
 | モデル | `jp.anthropic.claude-sonnet-4-6` | ✅ 確定（[../bedrock/](../bedrock/)） |
+| IaC | **CDK**（qualifier `trg-dev`）。backend/ はSAMのまま | ✅ 確定 |
 | Lambdaの要否 | **未決** | ✗ 調査次第 |
 | タイムアウト値 | 未決 | ✗ 実測次第 |
 
