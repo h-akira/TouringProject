@@ -18,7 +18,7 @@
 |---|---|---|
 | フロント | **React Native (Expo)** | 既存のWeb開発知識(JS/TS)を最も活かせる。Web(PWA)は却下 |
 | ウェイクワード | Picovoice Porcupine | オンデバイス・個人利用は無料枠(月間3ユーザー)内 |
-| バックエンド | **API Gateway + Lambda(Python)** | Lambdaが司令塔。IaCは **SAM単体**（CDK併用しない） |
+| バックエンド | **API Gateway + Lambda(Python)** | IaCは **SAM**。ただし `touringAgent/`（AgentCore）は **CDK**（CLIの仕様。docs/01 §8） |
 | STT / LLM / TTS | Transcribe / Bedrock / Polly | **Lexは使わない**（LLM自身が意図理解するので不要） |
 | 認証 | **APIキー方式** | アプリ画面から入力→端末に安全保管（ハードコード禁止）。将来Cognito移行余地 |
 | 対象OS | Android（当面は自分の端末のみ） | iOS対応は当面スコープ外 |
