@@ -413,7 +413,7 @@ AgentCore は**モジュール式**で、必要なものだけ使えばよい。
 |---|---|---|
 | **Runtime** | エージェントを動かす基盤 | ✅ 使う |
 | **Memory** | セッションを越えた永続記憶 | △ 検討中 |
-| **Gateway** | 既存API/LambdaをMCPツール化 | △ 将来 |
+| **Gateway** | 既存API/LambdaをMCPツール化。AWS提供のツールもここから使う | ✅ 使う（[52](./52_mcp_and_tools.md)） |
 | **Identity** | エージェントの認証・認可 | △ 将来 |
 | **Browser** | エージェントがWebを操作 | ✗ |
 | **Code Interpreter** | コード実行サンドボックス | ✗ |
@@ -432,6 +432,9 @@ AgentCore は**モジュール式**で、必要なものだけ使えばよい。
 | セッション | 同じIDで呼べば文脈が繋がる |
 | エンドポイント | `/invocations` と **`/ping`**（自前の `/health` とは別物） |
 | 落とし穴 | `/ping` の `time_of_last_update` でタイムアウトが効かなくなる |
+
+**次に読む**: [52. MCP とツール利用](./52_mcp_and_tools.md) —
+§2で触れた「ツール」を実際にどう足すか（MCP・Gateway・つまずきポイント）。
 
 ## 参考
 

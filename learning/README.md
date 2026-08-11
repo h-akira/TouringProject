@@ -38,8 +38,8 @@
 **バックエンド / AI（51〜）**
 
 - [x] AIエージェントと AgentCore（Lambda経験者向け）
+- [x] MCP（Model Context Protocol）とツール利用
 - [ ] プロンプト設計の基礎（システムプロンプト / 音声読み上げ向けの制約）
-- [ ] MCP（Model Context Protocol）とツール利用
 - [ ] STT / TTS（Transcribe・Polly）の扱い方
 
 ## 索引
@@ -57,3 +57,4 @@
 ### バックエンド / AI
 
 - [51. AIエージェントと Amazon Bedrock AgentCore（Lambda経験者向け）](./51_ai_agent_and_agentcore.md)
+- [52. MCP とツール利用（エージェントに「できること」を足す）](./52_mcp_and_tools.md)
