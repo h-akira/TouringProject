@@ -18,5 +18,15 @@ dependencies = [
     "mcp-proxy-for-aws",
 ]
 
+[dependency-groups]
+# Test-only. Kept out of `dependencies` so it is not packaged into the runtime
+# image; `uv sync` installs it locally, `uv sync --no-dev` does not.
+dev = [
+    "pytest >= 8.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
 [tool.hatch.build.targets.wheel]
 packages = ["."]
