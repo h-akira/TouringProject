@@ -170,8 +170,11 @@ Gateway は自分自身のツール検索機能なども公開するので、**�
 # ❌ 危ない：先頭が目当てのツールとは限らない
 tool = tools[0]
 
-# ✅ 名前で選ぶ
-tool = next(t for t in tools if t.endswith("WebSearch"))
+# ✅ 名前で選ぶ。第2引数の None を忘れないこと
+#    （付けないと、見つからないときに StopIteration で落ちる）
+tool = next((t for t in tools if t.endswith("WebSearch")), None)
+if tool is None:
+    raise RuntimeError(f"WebSearch tool not found in {tools}")
 ```
 
 ### 6.2 レスポンスがJSONとは限らない

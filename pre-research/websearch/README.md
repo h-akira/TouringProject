@@ -14,15 +14,28 @@
 | 認証 | **IAMのみ**（外部APIキー不要） |
 | 提供リージョン | **us-east-1 のみ**（2026-08時点） |
 
-Runtime は `ap-northeast-1`、Gateway は `us-east-1` に置くため、**リージョンを跨ぐ**構成になる。
+**コネクタが us-east-1 限定なので、`touringAgent/` 全体を us-east-1 に置いている。**
+Runtime と Gateway を同じリージョンに揃え、リージョンを跨がない構成にした。
 
 ```mermaid
 flowchart LR
-    A["アプリ"] --> R["AgentCore Runtime<br/>ap-northeast-1"]
-    R --> B["Bedrock<br/>回答生成"]
-    R -->|"MCP / InvokeGateway"| G["AgentCore Gateway<br/>us-east-1"]
-    G --> W["Web Search Tool"]
+    subgraph T["us-east-1"]
+      R["AgentCore Runtime"]
+      G["AgentCore Gateway"]
+      W["Web Search Tool"]
+      R --> B["Bedrock<br/>回答生成"]
+      R -->|"MCP / InvokeGateway"| G
+      G --> W
+    end
+    A["アプリ"] --> R
 ```
+
+> ⚠️ **`backend/`（SAM）は `ap-northeast-1` のまま。** リージョンが用途で分かれている
+> （[../../CLAUDE.md](../../CLAUDE.md) の「AWS / バックエンド開発」参照）。
+>
+> ⚠️ **モデルIDも `us.` 系になる。** `jp.anthropic.claude-sonnet-4-6` は ap-northeast 専用の
+> 推論プロファイルで、us-east-1 からは `ValidationException: The provided model identifier is invalid`
+> になる（実測）。現在は `us.anthropic.claude-sonnet-4-6` を使用。
 
 ## 2. 仕様
 
@@ -80,8 +93,12 @@ MCP準拠。各結果は `text`（本文抜粋）・`url`・`title`・`published
 | 静岡県富士市 国道1号沿い ガソリンスタンド 営業時間 | 1030 ms |
 | 富士市 今日のイベント | 1064 ms |
 
-東京→バージニアを跨いでいるが**1秒前後で安定**。走行中の体験として許容できる範囲。
-なおこれは検索単体の時間で、実際にはこの後にモデルの生成時間が乗る。
+**1秒前後で安定**。走行中の体験として許容できる範囲。
+
+> ⚠️ **測定条件に注意。** これは**日本のローカルMacから us-east-1 のGatewayを直接叩いた**値で、
+> 太平洋を往復する分が含まれている。本番では**Runtimeも us-east-1 にある**ため、
+> Runtime→Gateway 間はこれより速いはず（未測定）。
+> なおこれは検索単体の時間で、実際にはこの後にモデルの生成時間が乗る。
 
 ### 検索品質: 天気は良好、地点の曖昧さに弱い
 

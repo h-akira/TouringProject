@@ -322,7 +322,8 @@ AWSへのデプロイ済み。Runtime `touringAgent_agentcore_trg_dev_ask` が `
 - [ ] `idleRuntimeSessionTimeout` を短くした場合の挙動（最小60秒。会話が切れる体感）
 - [ ] アプリ側のセッションID発行でタイムアウトを可変にできるか（§5の方式）
 - [ ] `StopRuntimeSession` による明示的停止でコストを抑えられるか
-- [ ] ツール実行（WebSearch等）の実装方法 — 本命の拡張要件
+- [x] ツール実行（WebSearch等）の実装方法 — **解決済み**。AgentCore Gateway の組み込みコネクタを
+      MCP経由で使う形で US-1.04 を実装した（[../websearch/](../websearch/)）
 - [ ] 最小権限ポリシーへの絞り込み（現在は PowerUser + IAMFullAccess。CloudTrailで実使用権限を確認して絞る）
 - [ ] 既存の `backend/`（SAM）と `touringAgent/`（CDK）の連携方法（相互参照が要る場合）
 
@@ -332,7 +333,7 @@ AWSへのデプロイ済み。Runtime `touringAgent_agentcore_trg_dev_ask` が `
 |---|---|---|
 | セッション管理 | **AgentCore Runtime** | ✅ 確定 |
 | エージェントソース | **S3ソース（.zip）** | ◯ 高い（要件に合致） |
-| モデル | `jp.anthropic.claude-sonnet-4-6` | ✅ 確定（[../bedrock/](../bedrock/)） |
+| モデル | ~~`jp.anthropic.claude-sonnet-4-6`~~ → **`us.anthropic.claude-sonnet-4-6`** | ✅ 確定。US-1.04で us-east-1 へ移設したため `us.` 系に変更（[../websearch/](../websearch/)） |
 | IaC | **CDK**（qualifier `trg-dev`）。backend/ はSAMのまま | ✅ 確定 |
 | 会話の記憶 | **セッション内のみ**（AgentCore Memory は使わない） | ✅ 確定（要件が「一問一答＋α」のため） |
 | Lambdaの要否 | **未決** | ✗ 調査次第 |

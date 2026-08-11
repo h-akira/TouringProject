@@ -138,14 +138,19 @@ grep -rnE '\b[0-9]{12}\b|\b(o-[a-z0-9]{10,}|r-[a-z0-9]{4,}|p-[a-z0-9]{8,})\b|AKI
 - [x] **Bedrock事前調査**（`pre-research/bedrock/`）。ap-northeast-1で `jp.anthropic.claude-sonnet-4-6` が利用可能と実証。**Claude 5系は当アカウント未提供**
 - [x] **AgentCore調査**（`pre-research/agentcore/`）。会話継続の基盤として **AgentCore採用を決定**。エージェントソースは **S3ソース(.zip)** 方針（Docker不要）
 - [x] **AgentCoreで最小エージェントをデプロイし、`runtimeSessionId` による会話継続を実証**（`touringAgent/`。対照実験込みで確認）
-- [x] **Lambdaを挟むか否かの決定** → **当面は挟む**（流量制限がAPI Gateway依存のため。`pre-research/agentcore/AUTH.md`）
+- [ ] **Lambdaを挟むか否か** → ⚠️ **再検討中**。当初は「当面は挟む」としたが（`pre-research/agentcore/AUTH.md`）、
+      **音声方式とセットで決め直す**（下記）。流量制限という当初の根拠は「利用者は本人のみ」の現状では効いていない
 - [x] **要件定義を作成**（`docs/00_user_stories.md`）。MVPスコープを確定
 - [x] **US-1.04（Web検索）が成立**。AgentCore Gateway の純正コネクタを採用（`pre-research/websearch/`）。
       **「アプリで確認してください」を返さなくなった**ことを実機で確認。必要なときだけ検索することもログで実証
 - [x] **これに伴い `touringAgent/` を us-east-1 へ移設**（コネクタが us-east-1 限定。モデルIDも `us.` 系に変更）
-- [ ] **MVP: アプリ → Lambda → AgentCore を繋ぐ** ← **いま最優先**（US-1.01・03。`backend/` の `POST /ask` が未だモック）
+- [ ] **音声の実現方式を決める** ← **いま最優先**。走行中は音声しか使えず**音声が本体**なので、
+      これを検証してから構成を確定する（先にMVPの配線をすると音声化で作り直しになる）。
+      選択肢は「手前でSTT」「`/ws`で音声を直接」「Nova 2 Sonic（音声→音声）」の3つ。
+      **この選択でLambdaの要否も決まる**（`/ws`を使うならLambdaは中継役になれない）
+- [ ] **MVP: アプリ → AgentCore を繋ぐ**（US-1.01・03。`backend/` の `POST /ask` は未だモック）
 - [ ] MVP機能2: 連続取得（watchPositionAsync）→ 2点間から進行方位を算出（US-2.03）
-- [ ] 音声化（STT/TTS）（US-2.01 / US-2.02）
+- [ ] 音声化の実装（US-2.01 / US-2.02）
 - [ ] PoC: バックグラウンド常駐＋ウェイクワードの実機検証（US-2.04・**最大の技術リスク**）
 
 ### いま作っているもの（MVPのスコープ）

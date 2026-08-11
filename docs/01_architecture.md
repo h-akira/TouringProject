@@ -159,6 +159,40 @@ def save_memo(text: str) -> str:
 
 今やるべきは「後からツールを足せる状態を保つ」ことだけ（[00_user_stories.md](00_user_stories.md) 補足B）。
 
+## 5.2 ⚠️ リージョンは用途で分かれている
+
+**`backend/` は東京、`touringAgent/` はバージニア。** 混同すると動かないので注意。
+
+| 対象 | リージョン | 理由 |
+|---|---|---|
+| `backend/`（SAM: API Gateway + Lambda） | **`ap-northeast-1`**（東京） | 利用者が日本にいる。変更する理由がない |
+| `touringAgent/`（AgentCore: Runtime + Gateway） | **`us-east-1`**（バージニア） | **Web検索コネクタが us-east-1 でしか提供されていない**ため |
+
+Web検索（US-1.04）は AgentCore Gateway の**組み込みコネクタ**で実現しており、
+これが us-east-1 限定。Runtime と Gateway を別リージョンに分けるとリージョンを跨ぐので、
+**`touringAgent/` ごと us-east-1 に置いている**（[pre-research/websearch/](../pre-research/websearch/)）。
+
+### ⚠️ これに伴う制約
+
+**モデルIDは `us.` 系を使う。**
+
+| | モデルID | 使えるか |
+|---|---|---|
+| 当初（東京） | `jp.anthropic.claude-sonnet-4-6` | ap-northeast 専用 |
+| **現在（バージニア）** | **`us.anthropic.claude-sonnet-4-6`** | ✅ |
+
+`jp.` は ap-northeast 専用の**推論プロファイル**なので、us-east-1 から呼ぶと
+`ValidationException: The provided model identifier is invalid` になる（実測）。
+
+> ⚠️ **Lambdaから AgentCore を呼ぶ場合、東京のLambdaが us-east-1 のRuntimeを呼ぶことになる。**
+> boto3 クライアントの**リージョン指定を明示すること**（既定のままだと東京を見に行って
+> `ResourceNotFoundException` になる）。
+
+> 📌 **将来リージョンを揃えられる可能性はある。** 東京移設の条件は
+> 「Web検索コネクタが東京で使えるようになること」。
+> なお音声化で **Nova 2 Sonic**（`amazon.nova-2-sonic-v1:0`）を採る場合、
+> このモデル自体は**東京でも利用可能**（実測確認済み）。
+
 ## 6. 認証：APIキー方式（アプリ画面から入力）
 
 当面の対象は「自分のAndroidだけ」なので、まずは軽量な **APIキー認証**で始める。
