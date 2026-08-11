@@ -28,13 +28,18 @@ cdk.out/
 .serverless/
 # samconfig.toml はリポジトリで管理する（スタック名・リージョン等の共有設定。秘密は含めない）
 
-# === AgentCore（touringAgent/）===
+# === AgentCore ===
 # デプロイすると実アカウントID・ARN・エンドポイントURLが書き込まれるため除外。
 # このリポジトリは公開しているので、CLIが生成する状態ファイルは追跡しない。
-touringAgent/agentcore/.cli/
-touringAgent/agentcore/aws-targets.json
+# パスを固定せず、AgentCoreプロジェクトがどこにあっても効くようにする
+# （pre-research/ 配下に作る検証用プロジェクトも同じ生成物を持つため）。
+**/agentcore/.cli/
+**/agentcore/aws-targets.json
+**/agentcore/.env.local
+# 除外すると新しい環境で書式が分からなくなるため、雛形は追跡する
+# （touringAgent/agentcore/aws-targets-sample.json。実IDを入れてリネームして使う）
 # uv が作る仮想環境（.venv は生成物側の .gitignore でも除外されるが二重に明示）
-touringAgent/app/*/.venv/
+**/app/*/.venv/
 
 # === ログ・一時ファイル ===
 *.log
