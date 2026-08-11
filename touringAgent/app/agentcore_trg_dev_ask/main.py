@@ -7,8 +7,9 @@ rather than telling a rider who cannot touch their phone to check an app
 later.
 
 Deliberately trimmed from the CLI scaffold:
-  - the example MCP client (mcp.exa.ai) is dropped; web search now goes through
-    the project's own gateway instead — see tools/web_search.py.
+  - the scaffolded MCP client (mcp_client/, pointed at mcp.exa.ai) and skills/
+    are deleted; nothing imported them. Web search goes through the project's
+    own gateway instead — see tools/web_search.py.
   - the add_numbers demo tool is dropped as noise.
   - SlidingWindowConversationManager replaces NullConversationManager, which
     keeps no history at all and so cannot answer a follow-up question.
