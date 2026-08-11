@@ -64,7 +64,11 @@
 ## AWS / バックエンド開発
 
 - ツール導入済み: AWS SAM CLI / AWS CLI。ローカル: Python 3.13、Docker（`sam local` に必要）。
-- デフォルトリージョン: `ap-northeast-1`（東京）。※Bedrockはリージョンでモデル可用性が異なるため、Bedrock実装時に要確認。
+- リージョンは**用途で分かれている**（混同注意）:
+  - `backend/`（SAM） = `ap-northeast-1`（東京）
+  - `touringAgent/`（AgentCore） = **`us-east-1`**。Web検索コネクタが us-east-1 でしか提供されないため（`pre-research/websearch/`）
+- そのため **AgentCore側のモデルIDは `us.anthropic.claude-sonnet-4-6`**。
+  `jp.` は ap-northeast 専用の推論プロファイルで、us-east-1 からは "model identifier is invalid" になる。
 - **リソース命名規約**: `<リソースタイプ>-trg-<env>-<識別子>`
   - `trg`=touring、`env`=`dev`/`prod`（SAMの `Environment` パラメータ）
   - 識別子: 単一/メインは `main`、複数あり得るものは用途名
@@ -136,7 +140,10 @@ grep -rnE '\b[0-9]{12}\b|\b(o-[a-z0-9]{10,}|r-[a-z0-9]{4,}|p-[a-z0-9]{8,})\b|AKI
 - [x] **AgentCoreで最小エージェントをデプロイし、`runtimeSessionId` による会話継続を実証**（`touringAgent/`。対照実験込みで確認）
 - [x] **Lambdaを挟むか否かの決定** → **当面は挟む**（流量制限がAPI Gateway依存のため。`pre-research/agentcore/AUTH.md`）
 - [x] **要件定義を作成**（`docs/00_user_stories.md`）。MVPスコープを確定
-- [ ] **MVP: アプリ → Lambda → AgentCore → Bedrock を繋ぐ** ← **いま最優先**（US-1.01〜04）
+- [x] **US-1.04（Web検索）が成立**。AgentCore Gateway の純正コネクタを採用（`pre-research/websearch/`）。
+      **「アプリで確認してください」を返さなくなった**ことを実機で確認。必要なときだけ検索することもログで実証
+- [x] **これに伴い `touringAgent/` を us-east-1 へ移設**（コネクタが us-east-1 限定。モデルIDも `us.` 系に変更）
+- [ ] **MVP: アプリ → Lambda → AgentCore を繋ぐ** ← **いま最優先**（US-1.01・03。`backend/` の `POST /ask` が未だモック）
 - [ ] MVP機能2: 連続取得（watchPositionAsync）→ 2点間から進行方位を算出（US-2.03）
 - [ ] 音声化（STT/TTS）（US-2.01 / US-2.02）
 - [ ] PoC: バックグラウンド常駐＋ウェイクワードの実機検証（US-2.04・**最大の技術リスク**）

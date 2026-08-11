@@ -1,20 +1,20 @@
-"""Minimal AgentCore agent for the touring app — conversation-continuity PoC.
+"""AgentCore agent for the touring app — answers a rider's spoken questions.
 
-Goal of this stage: prove that reusing one runtimeSessionId actually carries
-context across invocations, and measure what that costs. Voice (Transcribe /
-Polly), API-key auth, and heading context come later.
+Covers two of the MVP stories: the conversation carries across invocations that
+share a runtimeSessionId (US-1.02), and the agent looks things up on the web
+rather than telling a rider who cannot touch their phone to check an app
+(US-1.04). Voice (Transcribe / Polly), API-key auth, and heading context come
+later.
 
 Deliberately trimmed from the CLI scaffold:
-  - the example MCP client (mcp.exa.ai) is dropped: an external dependency
-    would muddy the very thing we are measuring here.
-  - the add_numbers demo tool is dropped for the same reason. Tool use is a
-    later experiment (see pre-research/agentcore/ section 8).
+  - the example MCP client (mcp.exa.ai) is dropped; web search now goes through
+    the project's own gateway instead — see tools/web_search.py.
+  - the add_numbers demo tool is dropped as noise.
   - SlidingWindowConversationManager replaces NullConversationManager, which
     keeps no history at all and so cannot answer a follow-up question.
 
 Note the history is per process, so it survives only while the session's
-microVM is alive. That is exactly the property under test — see the caveat on
-`_SESSION_AGENTS` below.
+microVM is alive — see the caveat on `_SESSION_AGENTS` below.
 """
 
 import os
@@ -25,6 +25,7 @@ from strands import Agent
 from strands.agent.conversation_manager import SlidingWindowConversationManager
 
 from model.load import load_model
+from tools.web_search import load_web_search
 
 app = BedrockAgentCoreApp()
 log = app.logger
@@ -39,6 +40,17 @@ SYSTEM_PROMPT = """\
 - 方角や左右は、ユーザーから与えられた情報をそのまま使う。自分で計算し直さない。
 - 確実でないことは「たぶん」「〜と思われます」と正直に伝える。
 - 直前までの会話を踏まえ、「それ」「その山」のような指示語も文脈から解釈する。
+
+調べ方のルール:
+- ライダーは走行中で、スマホを操作できない。
+  「アプリで確認してください」「検索してみてください」とは絶対に答えない。
+  代わりに web 検索ツールで自分で調べて答える。
+- 天気・気温・道路状況・営業時間・イベントなど、その日その時の情報は必ず検索する。
+- 逆に、山や地域の由来のように変わらない知識は、検索せずそのまま答える。
+- 検索するときは地名を具体的に書く。「近くの」「この先の」では検索が効かないので、
+  与えられた現在地から都道府県名と市町村名を補って検索する。
+  例:「近くのガソリンスタンド」ではなく「静岡県富士市 ガソリンスタンド」。
+- 検索しても分からなければ、分からないと正直に答える。作り話はしない。
 """
 
 # How many turns to keep. Every turn is re-sent to Bedrock on the next call, so
@@ -56,6 +68,14 @@ MAX_CACHED_SESSIONS = 128
 # pre-research/agentcore/ section 8.
 _SESSION_AGENTS: "OrderedDict[str, Agent]" = OrderedDict()
 
+# Built once per process and shared by every session: the gateway connection is
+# stateless as far as we use it, and reconnecting per session would add a round
+# trip to each new conversation. None when no gateway is configured, in which
+# case the agent still answers, just from the model's own knowledge.
+_WEB_SEARCH = load_web_search()
+if _WEB_SEARCH is None:
+    log.warning("no gateway url in env - answering without web search")
+
 
 def _get_or_create_agent(session_id: str) -> Agent:
     """Return the Agent for this session, creating it on first contact."""
@@ -68,9 +88,13 @@ def _get_or_create_agent(session_id: str) -> Agent:
         log.info("evicted session from cache: %s", evicted)
 
     log.info("creating agent for session: %s", session_id)
+    # Passing the MCPClient itself (rather than a list of tools) lets Strands
+    # own the connection lifecycle, so there is no context manager to hold open
+    # across the async entrypoint below.
     _SESSION_AGENTS[session_id] = Agent(
         model=load_model(),
         system_prompt=SYSTEM_PROMPT,
+        tools=[_WEB_SEARCH] if _WEB_SEARCH else [],
         conversation_manager=SlidingWindowConversationManager(
             window_size=MAX_TURNS
         ),

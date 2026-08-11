@@ -13,10 +13,10 @@ dependencies = [
     "bedrock-agentcore >= 1.9.1",
     "botocore[crt] >= 1.35.0",
     "strands-agents >= 1.15.0",
+    # Reaches the AgentCore Gateway's web-search connector over MCP. The proxy
+    # handles SigV4 signing, since the gateway authorizes with AWS_IAM.
+    "mcp-proxy-for-aws",
 ]
-# `mcp` was dropped along with the scaffolded example MCP client: this stage
-# measures conversation continuity, and an external tool server would only add
-# noise. Add it back when tool use is on the agenda.
 
 [tool.hatch.build.targets.wheel]
 packages = ["."]
