@@ -136,13 +136,15 @@ sam deploy --parameter-overrides "Environment=dev" "AgentRuntimeArn=$AGENT_ARN"
 CloudFormation・S3（SAM管理バケット）・Lambda・API Gateway・IAM の必要な権限を付与しておくこと。
 （ローカル実行 `sam local` はこれらの権限を必要としない。）
 
-## 今後のステージ（このモックに足していく）
+## 今後このLambdaに足すもの
 
-設計（[docs/01](../docs/01_architecture.md)）に沿って段階的に実装:
+**次にやることは `.planning/todo.md` を見ること。** ここには「このLambdaの担当範囲」だけ挙げる。
 
-1. **APIキー認証 + Usage Plan**（流量制限）
-2. **入力量の上限**（音声秒数・文字数・max_tokens の検証）
-3. **STT**: 受け取った音声を Amazon Transcribe でテキスト化
-4. **LLM**: 現在地・方位を文脈に Amazon Bedrock で回答生成（実装時は `claude-api` スキル参照）
-5. **TTS**: 回答を Amazon Polly で音声化して返す
-6. **コスト暴走対策**: AWS Budgets → 予算超過で自動遮断
+- **進行方位**（US-2.03）: 2点から方位を算出して文脈に加える。算出をアプリ側でやるかは未決
+- **APIキー認証 + Usage Plan**（流量制限）
+- **入力量の上限**（文字数の検証。現在は `question` の500文字上限のみ）
+- **コスト暴走対策**: AWS Budgets → 予算超過で自動遮断
+
+> ⚠️ **STT/TTS はこのLambdaには入らない。** 音声は**アプリ側で**Transcribe/Pollyを呼ぶ方式に決定
+> （[pre-research/voice/](../pre-research/voice/)）。このAPIはテキストを受け取る。
+> **LLMの呼び出しもここではない**（AgentCoreの担当）。
