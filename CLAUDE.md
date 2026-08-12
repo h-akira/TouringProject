@@ -39,7 +39,7 @@
 |---|---|---|
 | **`.memory/`** | **開発の道具**（成果物ではない）。いまの状況を引き継ぐ。`issues.md`=決めるべき論点 / `todo.md`=やるべき作業 | **下記「`.memory/`」のルールに従う** |
 | `pre-research/` | 事前検討（構想・技術選定・方針）。判断の経緯・却下案も残す。`bedrock/`=モデル調査、`agentcore/`=会話継続の基盤調査（実行可能な検証スクリプト付き） | — |
-| `learning/` | 基礎的な学習メモ（汎用知識）。**01〜49=モバイル/フロント、51〜99=バックエンド/AI** | 基礎を丁寧に・既存Web知識との対応づけ |
+| `learning/` | 基礎的な学習メモ（汎用知識）。**01〜49=モバイル/フロント、51〜59=AI、61〜99=AI以外のバックエンド** | 基礎を丁寧に・既存Web知識との対応づけ |
 | `docs/` | 本アプリ固有の設計ドキュメント（**00=要件定義（最上位）**、01=全体アーキテクチャ、02=API仕様OpenAPI） | **初心者でもわかるように書く** |
 | `app/` | React Native (Expo) アプリ本体（**SDK 54**, TypeScript, expo-router）。`src/api/`=OpenAPIから生成した型 | `app/CLAUDE.md` はExpo自動生成 |
 | `backend/` | AWSバックエンド（SAM, Python 3.13）。`POST /ask` がAgentCoreへ中継＋座標→住所の解決、`GET /health` | `backend/README.md` に手順・命名規約 |

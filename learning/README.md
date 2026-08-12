@@ -18,7 +18,8 @@
 | 番号帯 | 領域 |
 |---|---|
 | **01〜49** | モバイル / フロントエンド（React Native・Expo・Android） |
-| **51〜99** | バックエンド / AI（AWS・Bedrock・AgentCore） |
+| **51〜59** | **AI**（Bedrock・AgentCore・エージェント・MCP） |
+| **61〜99** | **AI以外のバックエンド**（AWSの各サービス・API設計など） |
 
 ## 想定トピック（順不同・随時追加）
 
@@ -55,7 +56,11 @@
 - [07. API連携（fetch でバックエンドと通信 / 環境変数）](./07_api_integration.md)
 - [08. セーフエリア（画面端のバーに隠れない配置）](./08_safe_area.md)
 
-### バックエンド / AI
+### AI（51〜）
 
 - [51. AIエージェントと Amazon Bedrock AgentCore（Lambda経験者向け）](./51_ai_agent_and_agentcore.md)
 - [52. MCP とツール利用（エージェントに「できること」を足す）](./52_mcp_and_tools.md)
+
+### AI以外のバックエンド（61〜）
+
+- [61. 逆ジオコーディング（座標 → 住所）](./61_reverse_geocoding.md)
