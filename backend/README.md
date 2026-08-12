@@ -138,7 +138,7 @@ CloudFormation・S3（SAM管理バケット）・Lambda・API Gateway・IAM の�
 
 ## 今後このLambdaに足すもの
 
-**次にやることは `.planning/todo.md` を見ること。** ここには「このLambdaの担当範囲」だけ挙げる。
+**次にやることは `.memory/todo.md` を見ること。** ここには「このLambdaの担当範囲」だけ挙げる。
 
 - **進行方位**（US-2.03）: 2点から方位を算出して文脈に加える。算出をアプリ側でやるかは未決
 - **APIキー認証 + Usage Plan**（流量制限）
