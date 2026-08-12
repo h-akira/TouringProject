@@ -34,8 +34,9 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Ask the AI about the current location (mock stage)
-         * @description Send the current location (and, later, the recorded audio) and get an answer back. At the mock stage this returns a fixed answer and echoes the received points. STT/LLM/TTS and API-key auth are added later.
+         * Ask the AI about the current location
+         * @description Send a question together with the current location and get the answer back. The Lambda forwards this to the AgentCore runtime, which handles the conversation history and web search.
+         *     Pass the same `sessionId` on later requests to continue the conversation (US-1.02). Voice (STT/TTS) and API-key auth come later.
          */
         post: operations["ask"];
         delete?: never;
@@ -61,28 +62,36 @@ export interface components {
              */
             longitude: number;
         };
-        /** @description Request body for POST /ask. `start` and `end` are the two GPS points taken around the recording; the direction of travel is derived from them (see 01_architecture.md). */
+        /**
+         * @description Request body for POST /ask.
+         *     `start` is the rider's current location. `end` is the second GPS point used to derive the direction of travel; it is optional because heading is US-2.03 and outside the MVP.
+         */
         AskRequest: {
+            /**
+             * @description The rider's question, as text.
+             * @example 右手に見える山は何ですか？
+             */
+            question: string;
+            /**
+             * @description Conversation id. Send the same value to continue the previous conversation; omit it to start a new one. The app generates and stores this (at least 33 characters, an AgentCore requirement).
+             * @example touring-0123456789abcdef0123456789abcdef
+             */
+            sessionId?: string;
             start: components["schemas"]["Coordinates"];
-            end: components["schemas"]["Coordinates"];
+            end?: components["schemas"]["Coordinates"];
         };
-        /** @description Response body for POST /ask (mock stage). */
+        /** @description Response body for POST /ask. */
         AskResponse: {
             /**
-             * @description Status message (mock marker).
-             * @example mock backend is alive
-             */
-            message: string;
-            /**
-             * @description The answer to read back to the user.
-             * @example これはモックの回答です。バックエンド連携が通っています。
+             * @description The answer to read back to the rider.
+             * @example それはたぶん富士山です。標高は3776メートルあります。
              */
             answer: string;
-            /** @description Echo of the received points (mock only; removed later). */
-            received?: {
-                start?: components["schemas"]["Coordinates"];
-                end?: components["schemas"]["Coordinates"];
-            };
+            /**
+             * @description The conversation id this answer belongs to. Echoed back so the app can store it and continue the conversation on the next request (it is the server that generates one when the app sends none).
+             * @example touring-0123456789abcdef0123456789abcdef
+             */
+            sessionId: string;
         };
         ErrorResponse: {
             /** @description Human-readable error message. */
@@ -137,7 +146,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Answer generated (mock) */
+            /** @description Answer generated */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -146,8 +155,17 @@ export interface operations {
                     "application/json": components["schemas"]["AskResponse"];
                 };
             };
-            /** @description Invalid request (e.g. malformed body) */
+            /** @description Invalid request: malformed body, missing/empty `question`, a question over the length limit, or a `sessionId` shorter than 33 characters. */
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The agent could not be reached or returned no answer. */
+            502: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -41,11 +41,14 @@ paths:
   /ask:
     post:
       operationId: ask
-      summary: Ask the AI about the current location (mock stage)
+      summary: Ask the AI about the current location
       description: >
-        Send the current location (and, later, the recorded audio) and get an
-        answer back. At the mock stage this returns a fixed answer and echoes
-        the received points. STT/LLM/TTS and API-key auth are added later.
+        Send a question together with the current location and get the answer
+        back. The Lambda forwards this to the AgentCore runtime, which handles
+        the conversation history and web search.
+
+        Pass the same `sessionId` on later requests to continue the
+        conversation (US-1.02). Voice (STT/TTS) and API-key auth come later.
       requestBody:
         required: true
         content:
@@ -54,13 +57,22 @@ paths:
               $ref: "#/components/schemas/AskRequest"
       responses:
         "200":
-          description: Answer generated (mock)
+          description: Answer generated
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/AskResponse"
         "400":
-          description: Invalid request (e.g. malformed body)
+          description: >
+            Invalid request: malformed body, missing/empty `question`, a
+            question over the length limit, or a `sessionId` shorter than 33
+            characters.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "502":
+          description: The agent could not be reached or returned no answer.
           content:
             application/json:
               schema:
@@ -85,11 +97,28 @@ components:
     AskRequest:
       type: object
       description: >
-        Request body for POST /ask. `start` and `end` are the two GPS points
-        taken around the recording; the direction of travel is derived from
-        them (see 01_architecture.md).
-      required: [start, end]
+        Request body for POST /ask.
+
+        `start` is the rider's current location. `end` is the second GPS point
+        used to derive the direction of travel; it is optional because heading
+        is US-2.03 and outside the MVP.
+      required: [question, start]
       properties:
+        question:
+          type: string
+          description: The rider's question, as text.
+          minLength: 1
+          maxLength: 500
+          example: 右手に見える山は何ですか？
+        sessionId:
+          type: string
+          description: >
+            Conversation id. Send the same value to continue the previous
+            conversation; omit it to start a new one. The app generates and
+            stores this (at least 33 characters, an AgentCore requirement).
+          minLength: 33
+          maxLength: 128
+          example: touring-0123456789abcdef0123456789abcdef
         start:
           $ref: "#/components/schemas/Coordinates"
         end:
@@ -99,25 +128,20 @@ components:
 
     AskResponse:
       type: object
-      description: Response body for POST /ask (mock stage).
-      required: [message, answer]
+      description: Response body for POST /ask.
+      required: [answer, sessionId]
       properties:
-        message:
-          type: string
-          description: Status message (mock marker).
-          example: mock backend is alive
         answer:
           type: string
-          description: The answer to read back to the user.
-          example: これはモックの回答です。バックエンド連携が通っています。
-        received:
-          type: object
-          description: Echo of the received points (mock only; removed later).
-          properties:
-            start:
-              $ref: "#/components/schemas/Coordinates"
-            end:
-              $ref: "#/components/schemas/Coordinates"
+          description: The answer to read back to the rider.
+          example: それはたぶん富士山です。標高は3776メートルあります。
+        sessionId:
+          type: string
+          description: >
+            The conversation id this answer belongs to. Echoed back so the app
+            can store it and continue the conversation on the next request
+            (it is the server that generates one when the app sends none).
+          example: touring-0123456789abcdef0123456789abcdef
         # FUTURE: audio answer (Polly). Either audio bytes or an S3 URL.
         # See 01_architecture.md §9.
 
