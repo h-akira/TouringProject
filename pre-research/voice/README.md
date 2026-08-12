@@ -162,7 +162,7 @@ NOVA_SONIC_V2_MODEL_ID = "amazon.nova-2-sonic-v1:0"   # 既定はこちら
 
 1. §2 の制約表（Python 3.12+ / 8分の接続上限 / Guardrails非対応 / 履歴の自前管理）
 2. [../agentcore/AUTH.md](../agentcore/AUTH.md) — 方式3ではアプリ直結になり **Cognito + JWT が実質必須**
-3. ⚠️ `agentcore.json` の Runtime に認証フィールドが無い問題（§6）
+3. ⚠️ `agentcore.json` の Runtime に認証フィールドが無い問題（§8）
 
 ## 6. 実測結果（2026-08-12・本物の人の声）
 
@@ -286,11 +286,11 @@ CloudWatchのトレースで内訳を見ると、**エージェント内部は�
 | `AccessDeniedException: transcribe:StartStreamTranscription` | **プロファイル未指定**で既定の認証情報が使われていた。`AWS_PROFILE=touring` で解決 |
 | `ValidationException: accountID is required when agentRuntimeArn is provided as agentId` | **`AGENT_ARN` が空**。SDKは空文字列をARNではなくagentIdと解釈する |
 
-> ⚠️ **SCPは無関係だった。** 管理アカウントから確認したところ、
-> `touring` アカウントとその親OUに**アタッチされているSCPは `FullAWSAccess` のみ**。
-> 別プロジェクト（`aws-monitoring`）の制限系SCPは**作成済みだが未アタッチ**（同プロジェクトのADR-006の方針どおり）。
-> なお仮にアタッチされても、あのSCPは**Bedrock系APIのみが対象**で許可リージョンは
-> `ap-northeast-1` / `us-east-1` の両方なので、現構成（音声=東京 / エージェント=us-east-1）は許可範囲内。
+> ⚠️ **当初SCPを疑ったが、無関係だった**（組織側の設定を確認して切り分け済み）。
+> Transcribe/Polly はいずれも東京で問題なく呼べている。
+>
+> 📌 **教訓**: `AccessDenied` を見たらまず**どの認証情報で実行したか**を確認する。
+> 組織のポリシーを疑うのは、それを潰したあとでよい。
 
 ## 8. 未確認事項
 

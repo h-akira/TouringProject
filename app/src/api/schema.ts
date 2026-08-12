@@ -73,7 +73,7 @@ export interface components {
              */
             question: string;
             /**
-             * @description Conversation id. Send the same value to continue the previous conversation; omit it to start a new one. The app generates and stores this (at least 33 characters, an AgentCore requirement).
+             * @description Conversation id. Omit it to start a new conversation - the server mints one and returns it. Send that value back to continue the conversation. The app's job is to store it, not to generate it. (At least 33 characters, an AgentCore requirement.)
              * @example touring-0123456789abcdef0123456789abcdef
              */
             sessionId?: string;
