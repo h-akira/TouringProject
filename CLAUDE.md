@@ -37,11 +37,12 @@
 
 | ディレクトリ | 役割 | 書き方 |
 |---|---|---|
+| **`.planning/`** | **進捗と課題**（`todo.md`=やる順が決定済み / `backlog.md`=時期未定）。セッション引き継ぎの起点 | **下記「進捗と課題の管理」のルールに従う** |
 | `pre-research/` | 事前検討（構想・技術選定・方針）。判断の経緯・却下案も残す。`bedrock/`=モデル調査、`agentcore/`=会話継続の基盤調査（実行可能な検証スクリプト付き） | — |
 | `learning/` | 基礎的な学習メモ（汎用知識）。**01〜49=モバイル/フロント、51〜99=バックエンド/AI** | 基礎を丁寧に・既存Web知識との対応づけ |
 | `docs/` | 本アプリ固有の設計ドキュメント（**00=要件定義（最上位）**、01=全体アーキテクチャ、02=API仕様OpenAPI） | **初心者でもわかるように書く** |
 | `app/` | React Native (Expo) アプリ本体（**SDK 54**, TypeScript, expo-router）。`src/api/`=OpenAPIから生成した型 | `app/CLAUDE.md` はExpo自動生成 |
-| `backend/` | AWSバックエンド（SAM, Python 3.13）。現在はモック（`POST /ask` 固定応答、`GET /health`） | `backend/README.md` に手順・命名規約 |
+| `backend/` | AWSバックエンド（SAM, Python 3.13）。`POST /ask` がAgentCoreへ中継＋座標→住所の解決、`GET /health` | `backend/README.md` に手順・命名規約 |
 | `touringAgent/` | **AgentCoreエージェント本体**（Strands, CodeZip）。会話継続の中核。`app/<名前>/main.py` が実装、`agentcore/` がCLI設定とCDK | `agentcore` CLIで生成・デプロイ |
 
 - `learning/` と `docs/` の使い分け: 「他のRNプロジェクトでも通用する話」→ `learning/`、「このアプリ特有の話」→ `docs/`。
@@ -94,6 +95,12 @@
 | **APIの実URL** | `https://abc123xyz0.execute-api...` | `https://<api-id>.execute-api...` |
 | **IAMユーザー名・実在ユーザー名** | — | 役割名で表現 |
 | **個人のメールアドレス** | — | 書かない |
+| **実際の現在地の座標・住所** | 自宅や職場付近の緯度経度 | **東京駅などの公共ランドマークで代用** |
+
+> ⚠️ **位置情報アプリ特有の注意。** 実機テストのログやAPI応答には**開発者本人の居場所**が入る。
+> 検証結果をドキュメントに書くときは、**公共の座標で再現し直して**貼ること
+> （例: `pre-research/geocoding/`）。「約40km離れた市を答えた」のように**相対的な表現**にすれば
+> 事象は正確に記録できる。
 
 > AWSアカウントIDはパスワードではないが、**クロスアカウントロールの推測や標的の特定に使われ得る**ため公開しない。
 > 他プロジェクトのアカウント情報を巻き込まないことにも注意（構成図に列挙しない）。
@@ -119,51 +126,66 @@ grep -rnE '\b[0-9]{12}\b|\b(o-[a-z0-9]{10,}|r-[a-z0-9]{4,}|p-[a-z0-9]{8,})\b|AKI
 
 ## API契約（OpenAPI）と型生成
 
-- **API仕様は `docs/02_api_openapi.yaml`（OpenAPI 3.0）が正本** — フロント↔バックの契約。現状 `POST /ask`（モック）と `GET /health`。
+- **API仕様は `docs/02_api_openapi.yaml`（OpenAPI 3.0）が正本** — フロント↔バックの契約。現状 `POST /ask`（`question`/`sessionId`/`start`）と `GET /health`。
 - API Gatewayの `DefinitionBody` には未組込（契約・型生成・ドキュメント用途。仕様が固まったら検証用に昇格可能）。
 - **型生成**: `cd app && npm run gen:api` で `docs/02` → `app/src/api/schema.ts` を再生成。`src/api/types.ts` にエイリアス（`AskRequest`等）。
 - **契約を変えたら型を再生成** し、アプリの `fetch` が型で追従する（生成物 `schema.ts` もコミット対象）。
 
-## 現在の進捗
+## 📌 進捗と課題の管理（`.planning/`）
 
-- [x] 構想整理・技術選定・プロジェクト方針の策定（pre-research/）
-- [x] learning/ 整備（RN入門・Expo・環境構築・Node.jsツールチェーン・状態管理・位置情報）
-- [x] Expoプロジェクト作成（app/）。**SDK 57は最新すぎてExpo Go非対応のためSDK 54にダウングレード済み**
-- [x] 実機（Android + Expo Go）で動作確認済み。編集→即反映のループ確立
-- [x] **MVP機能1: 現在地取得（GPS）が実機で動作**（expo-location、`app/src/app/index.tsx`）
-- [x] docs/01 全体アーキテクチャ設計を作成（責務分担・音声フロー・認証・多層コスト対策・SAM）
-- [x] **backend/ にSAMモック作成**（`POST /ask` が固定応答）。AWSへデプロイ済み（ap-northeast-1）
-- [x] **アプリ↔バックエンド連携が実機で成立**（RN→公開API→応答表示。URLは `app/.env` の `EXPO_PUBLIC_API_BASE_URL`）
-- [x] API契約をOpenAPIで定義（`docs/02`）＋ `GET /health` 追加 ＋ openapi-typescriptで型生成（`app/src/api/`）
-- [x] **Bedrock事前調査**（`pre-research/bedrock/`）。ap-northeast-1で `jp.anthropic.claude-sonnet-4-6` が利用可能と実証。**Claude 5系は当アカウント未提供**
-- [x] **AgentCore調査**（`pre-research/agentcore/`）。会話継続の基盤として **AgentCore採用を決定**。エージェントソースは **S3ソース(.zip)** 方針（Docker不要）
-- [x] **AgentCoreで最小エージェントをデプロイし、`runtimeSessionId` による会話継続を実証**（`touringAgent/`。対照実験込みで確認）
-- [ ] **Lambdaを挟むか否か** → ⚠️ **再検討中**。当初は「当面は挟む」としたが（`pre-research/agentcore/AUTH.md`）、
-      **音声方式とセットで決め直す**（下記）。流量制限という当初の根拠は「利用者は本人のみ」の現状では効いていない
-- [x] **要件定義を作成**（`docs/00_user_stories.md`）。MVPスコープを確定
-- [x] **US-1.04（Web検索）が成立**。AgentCore Gateway の純正コネクタを採用（`pre-research/websearch/`）。
-      **「アプリで確認してください」を返さなくなった**ことを実機で確認。必要なときだけ検索することもログで実証
-- [x] **これに伴い `touringAgent/` を us-east-1 へ移設**（コネクタが us-east-1 限定。モデルIDも `us.` 系に変更）
-- [ ] **音声の実現方式を決める** ← **いま最優先**。走行中は音声しか使えず**音声が本体**なので、
-      これを検証してから構成を確定する（先にMVPの配線をすると音声化で作り直しになる）。
-      選択肢は「手前でSTT」「`/ws`で音声を直接」「Nova 2 Sonic（音声→音声）」の3つ。
-      **この選択でLambdaの要否も決まる**（`/ws`を使うならLambdaは中継役になれない）
-- [ ] **MVP: アプリ → AgentCore を繋ぐ**（US-1.01・03。`backend/` の `POST /ask` は未だモック）
-- [ ] MVP機能2: 連続取得（watchPositionAsync）→ 2点間から進行方位を算出（US-2.03）
-- [ ] 音声化の実装（US-2.01 / US-2.02）
-- [ ] PoC: バックグラウンド常駐＋ウェイクワードの実機検証（US-2.04・**最大の技術リスク**）
+**セッションをまたいで引き継ぐための、人とAIの共有メモ。**
+Claude Code が自動生成するメモリとは別物で、**人とAIが共同で手入れする**。
 
-### いま作っているもの（MVPのスコープ）
+| ファイル | 何を書くか |
+|---|---|
+| [.planning/todo.md](.planning/todo.md) | **やる順番が決まっているもの。** 上から順に着手する |
+| [.planning/backlog.md](.planning/backlog.md) | **やらねばならないが時期未定のもの。** 優先度（高/中/低）付き |
 
-**「現在地とともに質問 → AIが調べて答える」をスマホアプリで実現する**（`docs/00_user_stories.md` US-1.01〜04）。
+### 書き方のルール
 
-- ✅ やる: 位置情報＋テキスト質問 → AI回答、会話の継続、**Web検索**
-- ❌ **今はやらない**: 音声（STT/TTS）、ウェイクワード、方位算出、メモ機能
-- 音声もウェイクワードも P1。**まず画面で入力・表示する形でコア体験を成立させる**。
+- **粒度は大きく保つ。** 「US-2.03をやる」のような**まとまった単位**で書き、
+  細かい作業手順は書かない（それはその場で考えればよい）。
+- **数を増やしすぎない。** **人が一目で把握できる量**が上限
+  （目安: `todo.md` は3件程度、`backlog.md` は10件以内）。
+  溢れたら**優先度を下げるのではなく「やらない」と決める**（`docs/00_user_stories.md` §5 へ）。
+- **着手が決まったら** `backlog.md` → `todo.md` に**移す**（両方に書かない）。
+- **完了したら** `todo.md` の「完了したもの」に**日付つきで残す（消さない）**。
+  この粒度なら量は増えないので、**何をどこまで達成したかの記録として残す方が有用**。
+- **決着した論点は** `backlog.md` の「決着した論点」に**結論だけ**残す。
+  同じ議論が再燃したときに参照するため。
+- **判断の経緯や実測値は書かない。** それは `pre-research/` や `docs/` の役目。
+  ここには**「何をやるか」と「どこに詳細があるか」だけ**を書く。
 
-> **Web検索がMVPに入る理由**: 検索なしだと「今日の天気は？」「給油できる？」に対し
-> AIが「**アプリで確認してください**」と返す（実測）。走行中には実行不可能な回答であり、
-> 手も目も使えないという前提を壊すため。詳細は `docs/00_user_stories.md` 補足A。
+> ⚠️ **セッションの最初に `.planning/` を読む。** `CLAUDE.md` が「不変のルール」、
+> `.planning/` が「いま動いている状況」を持つ。**進捗を `CLAUDE.md` に書き足さない。**
+
+## これまでの到達点（技術的な事実）
+
+> **進捗・次にやることは `.planning/` を見ること。** ここには、後から何度も参照する
+> **技術的な前提**だけを残す（日付つきの達成記録は `.planning/todo.md`）。
+
+- **Expo SDK 54 を使う。** SDK 57 は Expo Go 非対応で、ダウングレード済み。上げるときは要注意。
+- **モデルIDは `us.anthropic.claude-sonnet-4-6`。** `jp.` は ap-northeast 専用のため
+  us-east-1 からは "model identifier is invalid" になる。**Claude 5系は当アカウント未提供**。
+- **エージェントのソースは S3ソース(.zip)方式**（CodeZip）。Docker不要（`pre-research/agentcore/`）。
+- **`touringAgent/` は us-east-1。** Web検索コネクタがそこ限定のため（`pre-research/websearch/`）。
+- **Lambdaを挟む構成**（`pre-research/agentcore/AUTH.md`、`pre-research/geocoding/`）。
+  役割は**入口の門番**＋**LLMに渡す前に事実（住所）を確定させる場所**。
+- **音声は方式1（手前でSTT）。** Nova 2 Sonic は**日本語非対応**で不採用（`pre-research/voice/`）。
+  → 将来日本語が追加されたら方式3を再検討する価値がある。
+- **座標→住所はLambdaで解決する**（Amazon Location `geo-places`）。
+  **LLMに座標を解釈させると約40kmずれる**（実測）。`pre-research/geocoding/`。
+- **AgentCoreの初回応答は10秒前後**（microVMのコールドスタート）。2回目以降は2〜3秒。
+  **アプリ側では縮められない**ので、Lambdaの `Timeout` は60秒にしている。
+- ⚠️ **AgentCoreはアイドル中も課金される**（文脈保持のためmicroVMが生存）。
+
+### スコープ（何を作り、何を作らないか）
+
+**正本は `docs/00_user_stories.md`**（要件定義）。ここでは要点だけ:
+
+- **MVP（P0）は完了済み**（US-1.01〜05）。位置情報＋テキスト質問 → AI回答、会話継続、Web検索、リセット。
+- **次は P1**（音声化・進行方位・ウェイクワード）。現在の着手順は `.planning/todo.md`。
+- ❌ **やらないこと**は `docs/00_user_stories.md` §5（iOS対応・ナビ機能・複数ユーザー対応・凝ったUI等）。
 
 > ⚠️ **メモ機能（US-X.01）は将来必要だが今は作らない。** 学習しながらの開発では初手から重い。
 > ただし**後から `@tool` を足すだけで対応できる構造**は保つ（それがAgentCoreを選んだ理由のひとつ）。

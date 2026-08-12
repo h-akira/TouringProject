@@ -3,20 +3,43 @@
 ツーリングAI会話アプリのサーバー側。**AWS SAM** で管理する。
 設計の全体像は [docs/01_architecture.md](../docs/01_architecture.md) を参照。
 
-## 現在のステージ：モック（配管確認）
+## 現在のステージ：AgentCore への中継（US-1.01・1.03）
 
-まず **アプリ↔バックエンドの連携が通ること**だけを確認するための最小構成。
-Bedrock/Transcribe/Polly はまだ呼ばず、`POST /ask` は**固定のJSON応答**を返す。
+`POST /ask` は**質問と現在地を受け取り、AgentCore のエージェントに中継する**。
+回答の生成・会話の記憶・Web検索は**エージェント側の仕事**で、このLambdaは
+**入口の門番**（検証して渡す）に徹する（[pre-research/agentcore/AUTH.md](../pre-research/agentcore/AUTH.md)）。
 
 ```
 backend/
-  template.yaml            SAM定義（API Gateway + Lambda）
+  template.yaml            SAM定義（API Gateway + Lambda + IAM権限）
   samconfig.toml           デプロイ設定（スタック名・リージョン・パラメータ）
   src/
     handlers/
-      ask.py               /ask のハンドラ（固定応答を返すモック）
+      ask.py               /ask のハンドラ（AgentCoreへ中継）
+      geocode.py           座標→住所（Amazon Location Service）
+  tests/
+    test_ask.py            ハンドラのテスト（AgentCore呼び出しはスタブ）
+    test_geocode.py        逆ジオコーディングのテスト
   events/
-    ask-post.json          sam local invoke 用のテストイベント
+    ask-post.json          sam local invoke 用（新規会話）
+    ask-post-session.json  同（sessionId 付き＝会話の継続）
+```
+
+> ⚠️ **リージョンが分かれている。** このスタックは `ap-northeast-1`（東京）だが、
+> 呼び出す AgentCore Runtime は **`us-east-1`**（Web検索コネクタがそこ限定のため）。
+> Lambdaは `AGENT_REGION` で明示的に us-east-1 を指す。
+
+### 音声はまだ入っていない
+
+音声の方式は**「手前でSTT」に決定済み**（[pre-research/voice/](../pre-research/voice/)）。
+アプリでTranscribeを通し、**テキストで**このAPIに送る形になる。
+Nova 2 Sonic（音声→音声）は日本語非対応のため採用しなかった。
+
+### テスト
+
+```sh
+cd backend
+python3 -m pytest tests/ -q
 ```
 
 > API仕様（OpenAPI）は**フロント↔バックの契約**なので `docs/02_api_openapi.yaml` に置いている。
@@ -31,22 +54,30 @@ backend/
 
 ## ローカルで動かす（デプロイ不要で試す）
 
+⚠️ **今のステージでは AgentCore を実際に呼ぶので、AWSの認証情報が必要**
+（モックだった頃と違い、権限なしでは動かない）。
+
 ```sh
 cd backend
-
-# 1. ビルド
 sam build
 
-# 2. ローカルにAPIを立てる（デフォルト http://127.0.0.1:3000）
-sam local start-api
+# AgentCore Runtime の ARN を取得（実値はコミットしないこと）
+export AGENT_ARN=$(AWS_PROFILE=touring aws bedrock-agentcore-control \
+  list-agent-runtimes --region us-east-1 \
+  --query 'agentRuntimes[0].agentRuntimeArn' --output text)
 
-# 3. 別ターミナルから叩いてみる
-curl -X POST http://127.0.0.1:3000/ask \
-  -H "Content-Type: application/json" \
-  -d '{"start": {"latitude": 35.0, "longitude": 139.0}, "end": {"latitude": 35.001, "longitude": 139.001}}'
+# 1件だけ実行してみる
+AWS_PROFILE=touring sam local invoke AskFunction \
+  --event events/ask-post.json \
+  --parameter-overrides "AgentRuntimeArn=$AGENT_ARN"
 ```
 
-固定のJSON（`"mock backend is alive"` を含む）が返れば配管OK。
+`answer` と `sessionId` を含むJSONが返れば成功。
+**同じ `sessionId` を送れば会話が続く**（`events/ask-post-session.json` を参照）。
+
+> 📌 **初回は10秒前後かかる。** AgentCore のコンテナ起動（コールドスタート）のため。
+> 2回目以降は2〜3秒（実測値は [pre-research/voice/](../pre-research/voice/) §6）。
+> このため Lambda の `Timeout` は 60秒にしている（既定の10秒では初回が必ず失敗する）。
 
 > 実機スマホから Mac のローカルAPIに繋ぐ場合は、GPSのときと同様にネットワーク到達性
 > （同一Wi-Fi・ファイアウォール）に注意。必要なら一旦AWSにデプロイして試す。
@@ -56,13 +87,40 @@ curl -X POST http://127.0.0.1:3000/ask \
 デプロイ設定は `samconfig.toml` に記述済み（スタック名・リージョン・パラメータ）。
 そのため対話なしでデプロイできる:
 
+⚠️ **`AgentRuntimeArn` はコマンドラインで渡す。**
+ARNには**AWSアカウントIDが含まれる**ため、`samconfig.toml` には書かない（公開リポジトリの鉄則）。
+
 ```sh
 cd backend
 sam build
-sam deploy          # samconfig.toml の設定で流れる（--guided 不要）
+
+export AGENT_ARN=$(AWS_PROFILE=touring aws bedrock-agentcore-control \
+  list-agent-runtimes --region us-east-1 \
+  --query 'agentRuntimes[0].agentRuntimeArn' --output text)
+
+sam deploy --parameter-overrides "Environment=dev" "AgentRuntimeArn=$AGENT_ARN"
 ```
 
 デプロイ後、出力される `ApiBaseUrl` に `/ask` を付けたURLがエンドポイント。
+
+### 必要なIAM権限（Lambda実行ロール）
+
+`template.yaml` の `Policies` で以下を付与済み。**無いと `AccessDenied` になる。**
+
+| 権限 | 用途 |
+|---|---|
+| `bedrock-agentcore:InvokeAgentRuntime` | エージェントの呼び出し |
+| `geo-places:ReverseGeocode` | 座標→住所（`handlers/geocode.py`） |
+
+- AgentCore側の対象はRuntimeのARNと、その配下（`/runtime-endpoint/*`）の**両方**。
+  実際に呼ばれるのは後者なので、片方だけでは足りない。
+- `geo-places` はリソース単位のARNを持たないので `Resource: "*"`（アクション側で絞る）。
+
+### なぜ座標→住所をLambdaでやるのか
+
+**LLMは緯度経度から場所を正しく言い当てられない**（実機で約40km離れた市を答えた）。
+そのため住所はLambdaで確定させ、事実としてエージェントに渡している。
+詳細と検証結果は [pre-research/geocoding/](../pre-research/geocoding/)。
 
 ### 命名規約
 
