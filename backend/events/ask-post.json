@@ -1,5 +1,5 @@
 {
-  "body": "{\"start\": {\"latitude\": 35.0, \"longitude\": 139.0}, \"end\": {\"latitude\": 35.001, \"longitude\": 139.001}}",
+  "body": "{\"question\": \"右手に見える山は何ですか？\", \"start\": {\"latitude\": 35.0, \"longitude\": 139.0}}",
   "httpMethod": "POST",
   "path": "/ask",
   "headers": { "Content-Type": "application/json" }
