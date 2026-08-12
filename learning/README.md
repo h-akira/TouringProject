@@ -53,6 +53,7 @@
 - [05. JSX / コンポーネント / 状態管理（Vue経験者向け）](./05_jsx_components_state.md)
 - [06. 位置情報の扱い方（権限フロー / expo-location）](./06_location_permissions.md)
 - [07. API連携（fetch でバックエンドと通信 / 環境変数）](./07_api_integration.md)
+- [08. セーフエリア（画面端のバーに隠れない配置）](./08_safe_area.md)
 
 ### バックエンド / AI
 
