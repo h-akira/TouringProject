@@ -1,0 +1,4 @@
+# Recordings are personal voice data and can be large; keep them local.
+recordings/
+.session
+env/
