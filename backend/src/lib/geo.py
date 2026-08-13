@@ -40,7 +40,7 @@ _COMPASS_POINTS: tuple[str, ...] = (
 
 # Below this distance the two points are treated as the same place: GPS noise
 # would dominate and produce a meaningless bearing (e.g. while stopped at a
-# traffic light). See docs/01_architecture.md §9 (low-speed handling).
+# traffic light). See docs/01b_heading.md section 3.
 MIN_DISTANCE_METERS = 5.0
 
 _EARTH_RADIUS_METERS = 6_371_000.0

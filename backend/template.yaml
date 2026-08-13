@@ -30,7 +30,7 @@ Parameters:
     Default: us-east-1
     Description: >
       Region of the AgentCore runtime. Not this stack's region: the runtime is
-      pinned to us-east-1 by the web-search connector (docs/01 section 5.2).
+      pinned to us-east-1 by the web-search connector (docs/01 section 6).
 
 Globals:
   Function:

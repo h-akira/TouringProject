@@ -136,6 +136,18 @@ flowchart LR
 ⚠️ **worker(120) < 可視性(180) が崩れると、処理中に再配信される。**
 worker の Timeout を伸ばすときは、可視性タイムアウトも一緒に伸ばすこと。
 
+さらにその外側に、**取り残しを回収する2つの閾値**がある
+（worker が Timeout で死ぬと `except` すら走らず、`processing` のまま残るため）:
+
+| 閾値 | 値 | 役割 |
+|---|---|---|
+| `CLAIM_STALE_SECONDS` | 5分 | これより古い `processing` は**別のworkerが奪い返せる** |
+| `ABANDONED_AFTER_SECONDS` | 15分 | ここまで `processing` なら**errorとして返す**（永久に待たせない） |
+
+⚠️ **`CLAIM_STALE_SECONDS` は可視性タイムアウトより長くすること。**
+短いと、まだ動いている worker から質問を奪い、AgentCoreを二重に呼ぶ。
+詳細は [03_dynamodb_table.md](03_dynamodb_table.md) §4。
+
 ## 5. アプリ側のポーリング
 
 ⚠️ **必ず止まるように作る**（無限に叩き続けない）。

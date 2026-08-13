@@ -33,8 +33,6 @@ const POLL_STEPS = [
   { untilMs: 40_000, intervalMs: 2_000 },
   { untilMs: 80_000, intervalMs: 4_000 },
 ] as const;
-const POLL_TIMEOUT_MS = POLL_STEPS[POLL_STEPS.length - 1].untilMs;
-
 /** 経過時間に応じた次のポーリング間隔。打ち切り後は null。 */
 function nextPollInterval(elapsedMs: number): number | null {
   const step = POLL_STEPS.find((s) => elapsedMs < s.untilMs);
@@ -336,8 +334,9 @@ export default function Index() {
       setQuestion("");
 
       // ② 回答ができるまで取りに行く。
+      // null は「中断された」= 画面を離れた/リセットされた。表示は変えない。
       const answerText = await pollForAnswer(data.requestId);
-      setAnswer(answerText);
+      if (answerText !== null) setAnswer(answerText);
     } catch (e) {
       setAnswer("送信に失敗しました: " + String(e));
     } finally {
@@ -352,8 +351,11 @@ export default function Index() {
    *   - done / error になったら止める
    *   - 80秒で打ち切る
    *   - 画面を離れたら止める（pollAbort が立つ）
+   *
+   * 戻り値が null なら中断された、という意味。空文字と区別する必要がある
+   * （空文字だと「回答なし」として画面が無反応に見える）。
    */
-  async function pollForAnswer(requestId: string): Promise<string> {
+  async function pollForAnswer(requestId: string): Promise<string | null> {
     const startedAt = Date.now();
 
     for (;;) {
@@ -364,7 +366,7 @@ export default function Index() {
       }
       await sleep(interval);
       // 待っている間に画面を離れた／リセットされたら、そこで諦める。
-      if (pollAbort.current) return "";
+      if (pollAbort.current) return null;
 
       let result: AskResultResponse & { error?: string };
       try {

@@ -6,12 +6,22 @@ calls the agent, so it stays fast however long the answer takes.
 `pending` and `processing` are both reported as "pending": the distinction
 exists to make duplicate deliveries safe (docs/03_dynamodb_table.md section 4)
 and means nothing to the app, which either has an answer or does not.
+
+The exception is a `processing` record whose worker died without recording
+anything and whose retries are exhausted. Nothing will move it again, so
+reporting it as pending would leave the app polling until it times out. It is
+reported as an error instead - the rider gets told, rather than left waiting.
 """
 
 import json
+import time
 from typing import Any
 
 from lib import store
+
+# Past this, a `processing` record has been abandoned: the queue's retries
+# (3 x 180s visibility) are spent, so nothing is coming back for it.
+ABANDONED_AFTER_SECONDS = 900
 
 
 def _response(status: int, body: dict[str, Any]) -> dict[str, Any]:
@@ -62,4 +72,23 @@ def handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
             },
         )
 
+    if status == "processing" and _is_abandoned(item):
+        return _response(
+            200,
+            {
+                "status": "error",
+                "error": "The question could not be answered.",
+                "sessionId": session_id,
+            },
+        )
+
     return _response(200, {"status": "pending", "sessionId": session_id})
+
+
+def _is_abandoned(item: dict[str, Any]) -> bool:
+    """Whether a claimed question has been left unfinished for good."""
+    claimed_at = item.get("claimedAt")
+    if not isinstance(claimed_at, (int, float)):
+        # Written by every claim; absent only on records from before that.
+        return False
+    return time.time() - float(claimed_at) > ABANDONED_AFTER_SECONDS

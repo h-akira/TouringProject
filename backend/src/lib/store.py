@@ -22,6 +22,12 @@ TABLE_NAME = os.environ.get("TABLE_NAME", "")
 # 80s), short enough that answers naming the rider's location do not linger.
 TTL_SECONDS = 3600
 
+# When a claim is old enough that its holder cannot still be running, and so may
+# be taken over. Must exceed the queue's visibility timeout (180s in
+# template.yaml) - below that, a worker still doing its job could have the
+# question taken off it, and the agent would be called twice.
+CLAIM_STALE_SECONDS = 300
+
 # Created once per container so warm invocations skip client setup.
 _resource = boto3.resource("dynamodb")
 
@@ -61,16 +67,29 @@ def claim(request_id: str) -> Optional[dict[str, Any]]:
     this the agent would be called - and billed - twice over. The conditional
     write is what makes that safe: only one caller can move a record out of
     `pending`, and the loser returns None and stops.
+
+    A claim can also be taken over once it has gone stale. A worker killed
+    mid-flight - a Lambda timeout leaves no chance to record anything - would
+    otherwise strand the record in `processing`, where it reads as "still
+    working" to the app until it gives up. Past CLAIM_STALE_SECONDS the record
+    is treated as abandoned, which is safe because the queue's visibility
+    timeout has expired by then: whoever held it is no longer running.
     """
+    now = int(time.time())
     try:
         result = _table().update_item(
             Key=_key(request_id),
-            UpdateExpression="SET #s = :processing",
-            ConditionExpression="#s = :pending",
+            UpdateExpression="SET #s = :processing, claimedAt = :now",
+            # Fresh work, or work whose owner has demonstrably stopped.
+            ConditionExpression=(
+                "#s = :pending OR (#s = :processing AND claimedAt < :stale)"
+            ),
             ExpressionAttributeNames={"#s": "status"},
             ExpressionAttributeValues={
                 ":processing": "processing",
                 ":pending": "pending",
+                ":now": now,
+                ":stale": now - CLAIM_STALE_SECONDS,
             },
             ReturnValues="ALL_NEW",
         )

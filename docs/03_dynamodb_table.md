@@ -68,6 +68,7 @@ DynamoDB では、RDB のように「エンティティごとにテーブルを�
 | `answer` | S | | `done` のときだけ |
 | `error` | S | | `error` のときだけ。**利用者に見せる文言**（内部情報は入れない） |
 | `createdAt` | N | ✅ | 作成時刻（UNIX秒） |
+| `claimedAt` | N | | worker が処理を始めた時刻。**取り残しの検出に使う**（下記） |
 | `expiresAt` | N | ✅ | **TTL。`createdAt` + 1時間** |
 
 ### 状態遷移
@@ -78,6 +79,7 @@ stateDiagram-v2
     pending --> processing: worker が獲得<br/>（条件付き書き込み）
     processing --> done: 回答が取れた
     processing --> error: AgentCore が失敗
+    processing --> processing: ⚠️ 5分以上経過なら<br/>別のworkerが奪い返せる
     done --> [*]: TTLで1時間後に消滅
     error --> [*]: TTLで1時間後に消滅
 
@@ -103,12 +105,24 @@ SQSは**少なくとも1回**の配信なので、同じメッセージが2回�
 # AgentCore を呼ばずに終われる。
 table.update_item(
     Key={"pk": f"ASK#{request_id}", "sk": "STATUS"},
-    UpdateExpression="SET #s = :processing",
-    ConditionExpression="#s = :pending",
-    ExpressionAttributeNames={"#s": "status"},
-    ExpressionAttributeValues={":processing": "processing", ":pending": "pending"},
+    UpdateExpression="SET #s = :processing, claimedAt = :now",
+    ConditionExpression="#s = :pending OR (#s = :processing AND claimedAt < :stale)",
+    ...
 )
 ```
+
+### ⚠️ 取り残された `processing` を回収する
+
+**worker が Lambda の Timeout で強制終了すると、`except` すら走らない。**
+そのままだとレコードは `processing` のまま残り、アプリには**永久に「処理中」に見える**
+（エラーとして伝わらないので、利用者は「ただ遅い」と感じたまま打ち切られる）。
+
+そこで2段構えで回収する。
+
+| 仕組み | 値 | 役割 |
+|---|---|---|
+| **claim の奪い返し** | `CLAIM_STALE_SECONDS` = 5分 | これより古い `processing` は**別のworkerが獲得できる**。⚠️ **可視性タイムアウト(180秒)より長くすること**（短いと、まだ動いているworkerから奪って二重呼び出しになる） |
+| **諦めの判定** | `ABANDONED_AFTER_SECONDS` = 15分 | 再配信を使い切ってもなお `processing` なら、`GET /ask/{id}` が **error として返す** |
 
 ### ⚠️ TTLを1時間にする理由
 

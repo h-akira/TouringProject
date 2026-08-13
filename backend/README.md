@@ -160,7 +160,6 @@ CloudFormation・S3（SAM管理バケット）・Lambda・API Gateway・IAM の�
 
 **次にやることは `.memory/todo.md` を見ること。** ここには「このLambdaの担当範囲」だけ挙げる。
 
-- **進行方位**（US-2.03）: 2点から方位を算出して文脈に加える。算出をアプリ側でやるかは未決
 - **APIキー認証 + Usage Plan**（流量制限）
 - **入力量の上限**（文字数の検証。現在は `question` の500文字上限のみ）
 - **コスト暴走対策**: AWS Budgets → 予算超過で自動遮断

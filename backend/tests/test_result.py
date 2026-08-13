@@ -7,6 +7,7 @@ either gives up early or never stops.
 
 import importlib
 import json
+import time
 import sys
 from pathlib import Path
 
@@ -76,6 +77,40 @@ def test_error_is_reported_as_a_200_with_a_status(result):
     assert response["statusCode"] == 200
     assert body["status"] == "error"
     assert body["error"]
+
+
+def test_an_abandoned_question_is_reported_as_an_error(result):
+    # A worker killed by a timeout records nothing, and once the queue's
+    # retries are spent nothing will move the record again. Reporting it as
+    # pending would leave the rider watching a spinner until it gives up.
+    response = _call(
+        result,
+        {
+            "status": "processing",
+            "sessionId": SESSION_ID,
+            "claimedAt": time.time() - result.ABANDONED_AFTER_SECONDS - 1,
+        },
+    )
+
+    assert json.loads(response["body"])["status"] == "error"
+
+
+def test_a_recently_claimed_question_is_still_pending(result):
+    # The other side of that cutoff: work in progress must not be called dead.
+    response = _call(
+        result,
+        {"status": "processing", "sessionId": SESSION_ID, "claimedAt": time.time()},
+    )
+
+    assert json.loads(response["body"])["status"] == "pending"
+
+
+def test_processing_without_a_claim_time_is_pending(result):
+    # Records written before claimedAt existed; treat them as in progress
+    # rather than declaring them dead on no evidence.
+    response = _call(result, {"status": "processing", "sessionId": SESSION_ID})
+
+    assert json.loads(response["body"])["status"] == "pending"
 
 
 def test_unknown_request_is_404(result):

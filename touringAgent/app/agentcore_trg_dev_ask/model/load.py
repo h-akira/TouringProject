@@ -13,7 +13,7 @@ from strands.models.bedrock import BedrockModel
 DEFAULT_MODEL_ID = "us.anthropic.claude-sonnet-4-6"
 
 # Answers are read aloud while riding, so cap the output length. This also caps
-# the per-request output cost (docs/01_architecture.md section 7.1).
+# the per-request output cost (docs/01_architecture.md section 9).
 #
 # ⚠️ Too tight a cap does not shorten the answer - it truncates mid-sentence and
 # the whole call fails with MaxTokensReachedException, leaving a broken partial

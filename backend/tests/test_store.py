@@ -97,6 +97,33 @@ def test_claim_returns_none_when_someone_else_has_it(store):
     assert store.claim("req-1") is None
 
 
+def test_claim_records_when_it_was_taken(store):
+    # Without this timestamp a worker killed mid-flight - a Lambda timeout
+    # records nothing - would strand the record in `processing` forever.
+    table = _use(store, _FakeTable())
+    before = int(time.time())
+    store.claim("req-1")
+
+    values = table.updates[0]["ExpressionAttributeValues"]
+    assert values[":now"] >= before
+    assert "claimedAt" in table.updates[0]["UpdateExpression"]
+
+
+def test_a_stale_claim_can_be_taken_over(store):
+    # The condition has to admit an abandoned record, or nothing ever retries
+    # a question whose worker died.
+    table = _use(store, _FakeTable())
+    store.claim("req-1")
+
+    condition = table.updates[0]["ConditionExpression"]
+    values = table.updates[0]["ExpressionAttributeValues"]
+    assert ":pending" in condition and ":stale" in condition
+    # The cutoff must sit far enough back that a worker still running cannot
+    # have its question taken - otherwise the agent gets called twice.
+    assert values[":now"] - values[":stale"] == store.CLAIM_STALE_SECONDS
+    assert store.CLAIM_STALE_SECONDS > 180  # the queue's visibility timeout
+
+
 def test_claim_propagates_unexpected_errors(store):
     # A throttle or a missing table must not be mistaken for "already claimed",
     # which would silently drop the question.

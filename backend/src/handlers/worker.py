@@ -2,7 +2,7 @@
 
 This is where the waiting happens. Invoked from the queue rather than API
 Gateway, so the agent's 10-25s is no longer racing the 29s request ceiling
-(docs/01_architecture.md section 5.6).
+(docs/01a_async_ask.md).
 
 ⚠️ SQS delivers at least once, so this handler must tolerate being run twice
 for the same question - AWS is explicit about that requirement. Here a repeat

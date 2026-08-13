@@ -9,7 +9,7 @@ handlers/result.py.
 ⚠️ This endpoint used to wait for the answer and return it. It no longer does:
 API Gateway caps a request at 29s and the agent alone measured 25.5s, so the
 wait was moved off the request path entirely (docs/01_architecture.md section
-5.6). The response is now 202 with a requestId to poll.
+5). The response is now 202 with a requestId to poll.
 """
 
 import json
@@ -31,7 +31,7 @@ from lib.geo import (
 )
 
 # Answers are read aloud while riding, so a question that long is a mistake
-# (and caps input cost - docs/01_architecture.md section 7.1).
+# (and caps input cost - docs/01_architecture.md section 9).
 MAX_QUESTION_CHARS = 500
 
 # AgentCore rejects a runtimeSessionId below this length.
@@ -209,8 +209,8 @@ def handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
         print(f"failed to queue question: {type(error).__name__}: {error}")
         return _response(502, {"error": "The question could not be accepted."})
 
-    # No coordinates or addresses are logged - see .memory/issues.md on
-    # location privacy.
+    # Neither coordinates nor the resolved address are logged: where the rider
+    # has been is theirs (docs/03_dynamodb_table.md section 4).
     print(f"timing: geocode={geocode_ms:.0f}ms queued={request_id}")
 
     # 202: accepted, not answered. The app polls GET /ask/{requestId}.
