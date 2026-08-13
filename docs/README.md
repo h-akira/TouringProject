@@ -22,12 +22,15 @@
 
 - [x] 全体アーキテクチャ（アプリ → API Gateway → Lambda → Bedrock / Transcribe / Polly）
 - [x] API仕様（OpenAPI）— フロント↔バックの契約（`02_api_openapi.yaml`）
+- [x] DynamoDBのテーブル定義（`03_dynamodb_table.md`）
+- [x] 位置・進行方位の算出設計（GPS 2点間から方位を求める）→ `01_architecture.md` §5.5
 - [ ] 音声処理パイプラインの設計（ウェイクワード検知 → 録音 → STT → 応答生成 → TTS → 再生）
-- [ ] 位置・進行方位の算出設計（GPS 2点間から方位を求める）
 - [ ] バックグラウンド常駐の設計（Foreground Service）
 - [ ] AWS側の構成（Lambda / API Gateway / IAM / Bedrock 呼び出し）
 
 ## 索引
 
+- [00. 要件定義（ユーザーストーリー）— **最上位**](./00_user_stories.md)
 - [01. 全体アーキテクチャ（責務分担とデータフロー）](./01_architecture.md)
 - [02. API仕様（OpenAPI）— フロント↔バックの契約](./02_api_openapi.yaml)
+- [03. DynamoDBテーブル定義（シングルテーブル設計）](./03_dynamodb_table.md)

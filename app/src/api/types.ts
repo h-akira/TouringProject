@@ -5,5 +5,7 @@ import type { components } from "./schema";
 
 export type Coordinates = components["schemas"]["Coordinates"];
 export type AskRequest = components["schemas"]["AskRequest"];
-export type AskResponse = components["schemas"]["AskResponse"];
+// POST /ask only accepts the question; the answer comes from GET /ask/{id}.
+export type AskAcceptedResponse = components["schemas"]["AskAcceptedResponse"];
+export type AskResultResponse = components["schemas"]["AskResultResponse"];
 export type HealthResponse = components["schemas"]["HealthResponse"];

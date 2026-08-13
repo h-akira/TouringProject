@@ -34,11 +34,34 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Ask the AI about the current location
-         * @description Send a question together with the current location and get the answer back. The Lambda forwards this to the AgentCore runtime, which handles the conversation history and web search.
+         * Submit a question about the current location
+         * @description Send a question together with the current location. The answer is NOT returned here: generating it takes 10-25s, which does not fit inside API Gateway's 29s ceiling once speech is added, so the question is queued and answered in the background.
+         *     The response is 202 with a `requestId`. Poll GET /ask/{requestId} until its status is `done` or `error`.
          *     Pass the same `sessionId` on later requests to continue the conversation (US-1.02). Voice (STT/TTS) and API-key auth come later.
          */
         post: operations["ask"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ask/{requestId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Collect the answer to a queued question
+         * @description Poll this after POST /ask until `status` is `done` or `error`; while it is `pending` the answer is still being generated.
+         *     The app backs its polling off (1s, then 2s, then 4s) and gives up after 80 seconds - measured answers take 10-13s, so anything much beyond that has gone wrong.
+         *     Note that a failed question is reported as 200 with `status: "error"`, not as an HTTP error: the request itself succeeded.
+         */
+        get: operations["getAskResult"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -88,15 +111,39 @@ export interface components {
              */
             elapsedSeconds?: number;
         };
-        /** @description Response body for POST /ask. */
-        AskResponse: {
+        /** @description Response body for POST /ask. The question has been queued, not answered - fetch the answer from GET /ask/{requestId}. */
+        AskAcceptedResponse: {
             /**
-             * @description The answer to read back to the rider.
+             * @description Id to poll GET /ask/{requestId} with.
+             * @example 3f1c9a2e-5b7d-4e6a-9c81-0d2f4b6a8e13
+             */
+            requestId: string;
+            /**
+             * @description The conversation id this question belongs to. Echoed back so the app can store it and continue the conversation on the next request (it is the server that generates one when the app sends none).
+             * @example touring-0123456789abcdef0123456789abcdef
+             */
+            sessionId: string;
+        };
+        /** @description Response body for GET /ask/{requestId}. */
+        AskResultResponse: {
+            /**
+             * @description `pending` means keep polling. `done` means `answer` is present; `error` means `error` is, and the question will not be answered.
+             * @example done
+             * @enum {string}
+             */
+            status: "pending" | "done" | "error";
+            /**
+             * @description The answer to read back to the rider. Present when done.
              * @example それはたぶん富士山です。標高は3776メートルあります。
              */
-            answer: string;
+            answer?: string;
             /**
-             * @description The conversation id this answer belongs to. Echoed back so the app can store it and continue the conversation on the next request (it is the server that generates one when the app sends none).
+             * @description Why the question could not be answered. Present when the status is `error`. Safe to show to the rider.
+             * @example The agent could not be reached.
+             */
+            error?: string;
+            /**
+             * @description The conversation id this question belongs to.
              * @example touring-0123456789abcdef0123456789abcdef
              */
             sessionId: string;
@@ -154,13 +201,13 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Answer generated */
-            200: {
+            /** @description Question accepted and queued. Poll GET /ask/{requestId} for the answer. */
+            202: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AskResponse"];
+                    "application/json": components["schemas"]["AskAcceptedResponse"];
                 };
             };
             /** @description Invalid request: malformed body, missing/empty `question`, a question over the length limit, or a `sessionId` shorter than 33 characters. */
@@ -172,7 +219,57 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description The agent could not be reached or returned no answer. */
+            /** @description The question could not be accepted for processing. */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    getAskResult: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The id returned by POST /ask. */
+                requestId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current state of the question. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AskResultResponse"];
+                };
+            };
+            /** @description No `requestId` was given. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description No such request. Also returned once the record has expired, an hour after it was created. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The stored result could not be read. */
             502: {
                 headers: {
                     [name: string]: unknown;

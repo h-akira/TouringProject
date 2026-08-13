@@ -46,6 +46,59 @@ Resources:
       Name: !Sub "apigw-trg-${Environment}-main"
       StageName: Prod
 
+  # Single table for the whole app - see docs/03_dynamodb_table.md for why one
+  # table holds every entity type, and how pk/sk distinguish them.
+  #
+  # AWS::DynamoDB::Table rather than SAM's SimpleTable: the latter takes only a
+  # partition key, so it cannot express the sort key or the TTL this design
+  # needs.
+  MainTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "dynamodb-trg-${Environment}-main"
+      # On-demand: a rider asks questions in bursts, so there is no sensible
+      # capacity to provision.
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+        - AttributeName: sk
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+        - AttributeName: sk
+          KeyType: RANGE
+      # Answers can name places the rider has been, so they are not kept around
+      # (docs/03_dynamodb_table.md section 4).
+      TimeToLiveSpecification:
+        AttributeName: expiresAt
+        Enabled: true
+
+  # Questions waiting to be answered. The queue is what takes the agent's
+  # 10-25s out of the API Gateway request, which is capped at 29s.
+  AskQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "sqs-trg-${Environment}-ask"
+      # ⚠️ Must exceed the worker's own Timeout (120s), or SQS redelivers a
+      # message that is still being processed - which would call the agent
+      # twice and bill twice. See docs/03_dynamodb_table.md section 4.
+      VisibilityTimeout: 180
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt AskDeadLetterQueue.Arn
+        # Two retries, then park it. A question that failed three times will
+        # not start working on the fourth.
+        maxReceiveCount: 3
+
+  # Failures land here instead of vanishing silently.
+  AskDeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "sqs-trg-${Environment}-ask-dlq"
+      # Long enough to notice and investigate.
+      MessageRetentionPeriod: 1209600 # 14 days
+
   # Lambda for the /ask endpoint (may grow -> purpose name "ask")
   AskFunction:
     Type: AWS::Serverless::Function
@@ -54,16 +107,53 @@ Resources:
       # <CodeUri>/<Handler>: src/handlers/ask.py -> handler()
       CodeUri: src/
       Handler: handlers/ask.handler
-      # The agent's first call in a session pays a ~9s microVM cold start, and
-      # measured cold invocations ran 10-13s, so the 10s default would time out
-      # exactly on the rider's first question (pre-research/voice/ section 6).
-      Timeout: 60
+      # Only resolves the address and queues the question now, so it no longer
+      # waits on the agent. Kept above the default because reverse-geocoding
+      # plus a cold start still needs more than 10s.
+      Timeout: 30
+      Environment:
+        Variables:
+          # Amazon Location is called in this stack's own region.
+          GEO_REGION: !Ref AWS::Region
+          TABLE_NAME: !Ref MainTable
+          QUEUE_URL: !Ref AskQueue
+      Policies:
+        # Reverse-geocoding the rider's position. geo-places has no per-resource
+        # ARN to scope to, so the resource is "*" - the action itself is the
+        # narrow part.
+        - Statement:
+            - Effect: Allow
+              Action: geo-places:ReverseGeocode
+              Resource: "*"
+        - DynamoDBWritePolicy:
+            TableName: !Ref MainTable
+        - SQSSendMessagePolicy:
+            QueueName: !GetAtt AskQueue.QueueName
+      Events:
+        Ask:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RestApi
+            Path: /ask
+            Method: post
+            # NOTE: no auth yet. API-key auth + usage plan come in a later stage.
+
+  # Where the waiting actually happens. Invoked from the queue rather than API
+  # Gateway, so the agent's 10-25s no longer counts against the 29s ceiling.
+  WorkerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "lambda-trg-${Environment}-worker"
+      CodeUri: src/
+      Handler: handlers/worker.handler
+      # Well clear of the 25.5s worst case measured so far, and deliberately
+      # below the queue's 180s visibility timeout.
+      Timeout: 120
       Environment:
         Variables:
           AGENT_ARN: !Ref AgentRuntimeArn
           AGENT_REGION: !Ref AgentRegion
-          # Amazon Location is called in this stack's own region.
-          GEO_REGION: !Ref AWS::Region
+          TABLE_NAME: !Ref MainTable
       Policies:
         # Without this the call comes back as AccessDenied. Scoped to the one
         # runtime; the wildcard suffix covers its /runtime-endpoint/* children,
@@ -74,21 +164,37 @@ Resources:
               Resource:
                 - !Ref AgentRuntimeArn
                 - !Sub "${AgentRuntimeArn}/*"
-        # Reverse-geocoding the rider's position. geo-places has no per-resource
-        # ARN to scope to, so the resource is "*" - the action itself is the
-        # narrow part.
-        - Statement:
-            - Effect: Allow
-              Action: geo-places:ReverseGeocode
-              Resource: "*"
+        - DynamoDBCrudPolicy:
+            TableName: !Ref MainTable
       Events:
-        Ask:
+        AskQueued:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt AskQueue.Arn
+            # ⚠️ One question per invocation. The default of 10 would put
+            # 10 x ~25s of agent calls inside one 120s timeout.
+            BatchSize: 1
+
+  # What the app polls while it waits. Reads the table; never calls the agent.
+  ResultFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "lambda-trg-${Environment}-result"
+      CodeUri: src/
+      Handler: handlers/result.handler
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref MainTable
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref MainTable
+      Events:
+        Result:
           Type: Api
           Properties:
             RestApiId: !Ref RestApi
-            Path: /ask
-            Method: post
-            # NOTE: no auth yet. API-key auth + usage plan come in a later stage.
+            Path: /ask/{requestId}
+            Method: get
 
   # Lambda for the /health endpoint (liveness check)
   HealthFunction:

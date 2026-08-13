@@ -10,7 +10,11 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Location from "expo-location";
 import Constants from "expo-constants";
-import type { AskRequest, AskResponse } from "@/api/types";
+import type {
+  AskRequest,
+  AskAcceptedResponse,
+  AskResultResponse,
+} from "@/api/types";
 
 // 画面に出すバージョン（app.json の version）。
 // ⚠️ **実機で「更新が反映されたか」を確かめるためのもの。**
@@ -20,6 +24,24 @@ const APP_VERSION = Constants.expoConfig?.version ?? "?";
 
 // Backend base URL from the environment (.env -> EXPO_PUBLIC_API_BASE_URL).
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL;
+
+// 回答待ちのポーリング設定（docs/01 §5.6）。
+// 実測10〜13秒なので大半は最初の帯（1秒間隔）で終わる。
+// ⚠️ **必ず打ち切る。** 終わらない質問を延々と叩き続けない。
+const POLL_STEPS = [
+  { untilMs: 20_000, intervalMs: 1_000 },
+  { untilMs: 40_000, intervalMs: 2_000 },
+  { untilMs: 80_000, intervalMs: 4_000 },
+] as const;
+const POLL_TIMEOUT_MS = POLL_STEPS[POLL_STEPS.length - 1].untilMs;
+
+/** 経過時間に応じた次のポーリング間隔。打ち切り後は null。 */
+function nextPollInterval(elapsedMs: number): number | null {
+  const step = POLL_STEPS.find((s) => elapsedMs < s.untilMs);
+  return step ? step.intervalMs : null;
+}
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // これ未満しか動いていなければ、方位はGPSの誤差でしかない。
 // ⚠️ サーバー側の MIN_DISTANCE_METERS（backend/src/lib/geo.py）と同じ値。
@@ -150,6 +172,10 @@ export default function Index() {
   // ref ではなく state にしているのは、値の有無で画面表示を変えるため。
   const [sessionId, setSessionId] = useState<string | null>(null);
 
+  // 回答待ちのポーリングを止めるための旗。画面を離れたときやリセット時に立てる。
+  // 立て忘れると裏でリクエストが回り続けるので、必ず止める側を用意する。
+  const pollAbort = useRef(false);
+
   // 会話を始めた時刻。経過時間をサーバーに伝えるために持つ。
   // 走行中は質問ごとに場所が変わるので、AIが「さっきの山」を解釈するには
   // 「前の質問からどれだけ経ったか」が要る（docs/01 §5.5）。
@@ -264,6 +290,8 @@ export default function Index() {
     }
     setSending(true);
     setAnswer(null);
+    // 新しい質問を始めるので、前回の中断指示は解除する。
+    pollAbort.current = false;
     try {
       // OpenAPIから生成した AskRequest 型で、送るデータの形が保証される。
       // end は過去の位置で、end→start の向きが進行方向になる（US-2.03）。
@@ -288,12 +316,13 @@ export default function Index() {
         // 前回のIDがあれば送る → 会話が続く。無ければサーバーが新規発行する。
         ...(sessionId ? { sessionId } : {}),
       };
+      // ① 質問を出す。回答はここでは返らない（202 + requestId）。
       const res = await fetch(`${API_BASE_URL}/ask`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(requestBody),
       });
-      const data = (await res.json()) as AskResponse & { error?: string };
+      const data = (await res.json()) as AskAcceptedResponse & { error?: string };
       if (!res.ok) {
         setAnswer("エラー: " + (data.error ?? `HTTP ${res.status}`));
         return;
@@ -304,12 +333,57 @@ export default function Index() {
       if (conversationStartedAt.current === null) {
         conversationStartedAt.current = Date.now();
       }
-      setAnswer(data.answer);
       setQuestion("");
+
+      // ② 回答ができるまで取りに行く。
+      const answerText = await pollForAnswer(data.requestId);
+      setAnswer(answerText);
     } catch (e) {
       setAnswer("送信に失敗しました: " + String(e));
     } finally {
       setSending(false);
+    }
+  }
+
+  /**
+   * 回答ができるまで GET /ask/{id} を叩く。
+   *
+   * ⚠️ **必ず止まる**ことが重要（docs/01 §5.6）:
+   *   - done / error になったら止める
+   *   - 80秒で打ち切る
+   *   - 画面を離れたら止める（pollAbort が立つ）
+   */
+  async function pollForAnswer(requestId: string): Promise<string> {
+    const startedAt = Date.now();
+
+    for (;;) {
+      const elapsed = Date.now() - startedAt;
+      const interval = nextPollInterval(elapsed);
+      if (interval === null) {
+        return "時間がかかりすぎたため中断しました。もう一度お試しください。";
+      }
+      await sleep(interval);
+      // 待っている間に画面を離れた／リセットされたら、そこで諦める。
+      if (pollAbort.current) return "";
+
+      let result: AskResultResponse & { error?: string };
+      try {
+        const res = await fetch(`${API_BASE_URL}/ask/${requestId}`);
+        result = (await res.json()) as AskResultResponse & { error?: string };
+        if (!res.ok) {
+          return "エラー: " + (result.error ?? `HTTP ${res.status}`);
+        }
+      } catch (e) {
+        // 走行中は電波が切れることがある。1回の失敗では諦めず、
+        // 打ち切り時間まで試し続ける。
+        continue;
+      }
+
+      if (result.status === "done") return result.answer ?? "";
+      if (result.status === "error") {
+        return "エラー: " + (result.error ?? "回答できませんでした");
+      }
+      // pending ならもう一周
     }
   }
 
@@ -320,7 +394,16 @@ export default function Index() {
     setQuestion("");
     // 会話が変わるので経過時間の起点も捨てる（次の質問がまた「最初」になる）。
     conversationStartedAt.current = null;
+    // 待っている途中でリセットされたら、その回答はもう要らない。
+    pollAbort.current = true;
   }
+
+  // 画面を離れるときにポーリングを止める（放置すると裏で叩き続ける）。
+  useEffect(() => {
+    return () => {
+      pollAbort.current = true;
+    };
+  }, []);
 
   return (
     <ScrollView
@@ -394,10 +477,11 @@ export default function Index() {
               {sending ? "考えています…" : "質問する"}
             </Text>
           </Pressable>
-          {/* 初回はコンテナ起動で10秒前後かかる（pre-research/voice/ §6） */}
+          {/* 初回はコンテナ起動で10秒前後かかる（pre-research/voice/ §6）。
+              回答ができるまで裏で取りに行っている（docs/01 §5.6）。 */}
           {sending && (
             <Text style={styles.note}>
-              最初の質問は10秒ほどかかります
+              回答を待っています（最初の質問は10秒ほど）
             </Text>
           )}
         </View>

@@ -1,16 +1,15 @@
-"""Handler for the /ask endpoint: forwards the question to the AgentCore agent.
+"""Handler for POST /ask: accepts a question and queues it for the agent.
 
 The Lambda is a gatekeeper, not the brains (pre-research/agentcore/AUTH.md):
-it validates the request and passes it to the AgentCore runtime, which owns
-the conversation history, the model, and web search.
+it validates the request, settles the facts the model should not guess at (the
+address, the heading), and hands the result to the queue. The agent is called
+by handlers/worker.py, and the app collects the answer from
+handlers/result.py.
 
-Two things to know about the shape of this code:
-
-  - The runtime lives in us-east-1 while this Lambda runs in ap-northeast-1,
-    because the web-search connector is only offered there. The region is
-    therefore explicit rather than inherited from the environment.
-  - The runtime replies with an SSE stream of Strands events, so the answer
-    arrives as a series of text deltas that have to be reassembled.
+⚠️ This endpoint used to wait for the answer and return it. It no longer does:
+API Gateway caps a request at 29s and the agent alone measured 25.5s, so the
+wait was moved off the request path entirely (docs/01_architecture.md section
+5.6). The response is now 202 with a requestId to poll.
 """
 
 import json
@@ -22,6 +21,7 @@ from typing import Any, Optional
 import boto3
 
 from handlers.geocode import describe_location
+from lib import store
 from lib.geo import (
     MIN_DISTANCE_METERS,
     bearing_to_compass,
@@ -30,12 +30,6 @@ from lib.geo import (
     relative_direction,
 )
 
-# Where the agent runs. Deliberately not this Lambda's own region; see above.
-AGENT_REGION = os.environ.get("AGENT_REGION", "us-east-1")
-
-# Set from the SAM template. Without it there is nothing to call.
-AGENT_ARN = os.environ.get("AGENT_ARN", "")
-
 # Answers are read aloud while riding, so a question that long is a mistake
 # (and caps input cost - docs/01_architecture.md section 7.1).
 MAX_QUESTION_CHARS = 500
@@ -43,8 +37,10 @@ MAX_QUESTION_CHARS = 500
 # AgentCore rejects a runtimeSessionId below this length.
 MIN_SESSION_ID_CHARS = 33
 
+QUEUE_URL = os.environ.get("QUEUE_URL", "")
+
 # Created once per container so warm invocations skip client setup.
-_client = boto3.client("bedrock-agentcore", region_name=AGENT_REGION)
+_sqs = boto3.client("sqs")
 
 
 def _response(status: int, body: dict[str, Any]) -> dict[str, Any]:
@@ -158,36 +154,9 @@ def _describe_heading(lat: float, lon: float, end: Optional[dict]) -> Optional[s
     )
 
 
-def _extract_answer(stream: Any) -> str:
-    """Reassemble the answer from the runtime's SSE event stream."""
-    answer = ""
-    for raw in stream.iter_lines():
-        if not raw:
-            continue
-        line = raw.decode() if isinstance(raw, bytes) else raw
-        if not line.startswith("data:"):
-            continue
-        try:
-            event = json.loads(line[len("data:"):].strip())
-        except json.JSONDecodeError:
-            continue
-        # The agent yields its own {"error": ...} for a rejected payload.
-        if isinstance(event, dict) and "error" in event and "event" not in event:
-            raise RuntimeError(str(event["error"]))
-        delta = (
-            event.get("event", {})
-            .get("contentBlockDelta", {})
-            .get("delta", {})
-            .get("text")
-        )
-        if delta:
-            answer += delta
-    return answer.strip()
-
-
 def handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
-    if not AGENT_ARN:
-        return _response(502, {"error": "AGENT_ARN is not configured."})
+    if not QUEUE_URL:
+        return _response(502, {"error": "QUEUE_URL is not configured."})
 
     # API Gateway (proxy integration) passes the body as a JSON string.
     try:
@@ -218,45 +187,31 @@ def handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
             {"error": f"`sessionId` must be at least {MIN_SESSION_ID_CHARS} characters."},
         )
 
-    # Timings are logged per stage because the 29s API Gateway ceiling is close
-    # (25.5s measured) and the split between address lookup, the agent's cold
-    # start and generation decides what is worth changing. No coordinates or
-    # addresses are logged here - see .memory/issues.md on location privacy.
+    # The address is resolved here rather than in the worker so that a failure
+    # to place the rider surfaces while the app is still on the request, and so
+    # the coordinates never have to be written to the table.
     started = time.monotonic()
     prompt = _build_prompt(
         question, body.get("start"), body.get("end"), body.get("elapsedSeconds")
     )
     geocode_ms = (time.monotonic() - started) * 1000
 
-    agent_started = time.monotonic()
+    request_id = str(uuid.uuid4())
     try:
-        result = _client.invoke_agent_runtime(
-            agentRuntimeArn=AGENT_ARN,
-            runtimeSessionId=session_id,
-            payload=json.dumps({"question": prompt}).encode(),
+        store.create_pending(request_id, session_id, prompt)
+        _sqs.send_message(
+            QueueUrl=QUEUE_URL,
+            MessageBody=json.dumps({"requestId": request_id}),
         )
-        # The call returns as soon as the stream opens, so time to first byte
-        # and time to the full answer are measured separately: a slow cold
-        # start shows up in the former, a long answer in the latter.
-        first_byte_ms = (time.monotonic() - agent_started) * 1000
-        answer = _extract_answer(result["response"])
     except Exception as error:  # noqa: BLE001 - surface one shape to the client
         # Logged for CloudWatch; the client gets a generic message rather than
         # the raw AWS error, which can name internal resources.
-        print(f"invoke_agent_runtime failed: {type(error).__name__}: {error}")
-        return _response(502, {"error": "The agent could not be reached."})
+        print(f"failed to queue question: {type(error).__name__}: {error}")
+        return _response(502, {"error": "The question could not be accepted."})
 
-    print(
-        "timing: geocode=%.0fms agent_open=%.0fms agent_total=%.0fms answer_chars=%d"
-        % (
-            geocode_ms,
-            first_byte_ms,
-            (time.monotonic() - agent_started) * 1000,
-            len(answer),
-        )
-    )
+    # No coordinates or addresses are logged - see .memory/issues.md on
+    # location privacy.
+    print(f"timing: geocode={geocode_ms:.0f}ms queued={request_id}")
 
-    if not answer:
-        return _response(502, {"error": "The agent returned no answer."})
-
-    return _response(200, {"answer": answer, "sessionId": session_id})
+    # 202: accepted, not answered. The app polls GET /ask/{requestId}.
+    return _response(202, {"requestId": request_id, "sessionId": session_id})

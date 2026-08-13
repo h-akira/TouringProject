@@ -1,13 +1,16 @@
-"""Tests for the /ask handler.
+"""Tests for the POST /ask handler.
 
-The AgentCore call is stubbed throughout: these cover the gatekeeper's own job
-(validation, session handling, building the prompt, parsing the SSE stream),
-not the agent's behaviour.
+The handler no longer waits for an answer - it validates the request, settles
+the address and heading into a prompt, and queues it (docs/01 section 5.6). So
+these cover that job: validation, session handling, and what ends up in the
+stored prompt. The agent itself is exercised in test_worker.py.
+
+DynamoDB and SQS are stubbed rather than mocked at the boto3 layer: what
+matters here is the prompt text handed onward, not the wire format.
 """
 
 import importlib
 import json
-import os
 import sys
 from pathlib import Path
 
@@ -18,63 +21,73 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 @pytest.fixture
 def ask(monkeypatch):
-    """Import the handler with an ARN configured, isolated per test.
+    """Import the handler with a queue configured, isolated per test.
 
     Reverse-geocoding is stubbed out by default so these tests neither need
     credentials nor depend on Amazon Location's answers; the tests that care
     about the address override it.
     """
-    monkeypatch.setenv("AGENT_ARN", "arn:aws:bedrock-agentcore:us-east-1:000:runtime/test")
+    monkeypatch.setenv("QUEUE_URL", "https://sqs.example/queue")
     module = importlib.import_module("handlers.ask")
     importlib.reload(module)
     module.describe_location = lambda _lat, _lon: None
     return module
 
 
-class _FakeStream:
-    """Stands in for the runtime's SSE response body."""
-
-    def __init__(self, lines):
-        self._lines = lines
-
-    def iter_lines(self):
-        return iter(self._lines)
-
-
-def _sse(*texts: str) -> _FakeStream:
-    lines = [
-        b'data: ' + json.dumps(
-            {"event": {"contentBlockDelta": {"delta": {"text": t}}}}
-        ).encode()
-        for t in texts
-    ]
-    return _FakeStream(lines)
-
-
 def _event(body) -> dict:
     return {"body": body if isinstance(body, str) else json.dumps(body)}
 
 
-def _call(ask, body, stream=None, capture=None):
-    """Invoke the handler with invoke_agent_runtime stubbed out."""
-    def fake_invoke(**kwargs):
-        if capture is not None:
-            capture.update(kwargs)
-        return {"response": stream if stream is not None else _sse("答え")}
+def _call(ask, body, capture=None, fail_on=None):
+    """Invoke the handler with the table and queue stubbed out.
 
-    ask._client.invoke_agent_runtime = fake_invoke
+    `capture` collects what would have been persisted/sent, so a test can
+    assert on the prompt without a real table.
+    """
+    def fake_create_pending(request_id, session_id, prompt):
+        if fail_on == "store":
+            raise RuntimeError("table unavailable")
+        if capture is not None:
+            capture.update(
+                {"requestId": request_id, "sessionId": session_id, "prompt": prompt}
+            )
+
+    def fake_send_message(**kwargs):
+        if fail_on == "queue":
+            raise RuntimeError("queue unavailable")
+        if capture is not None:
+            capture["message"] = kwargs
+
+    ask.store.create_pending = fake_create_pending
+    ask._sqs.send_message = fake_send_message
     return ask.handler(_event(body), None)
 
 
-def test_answer_and_session_are_returned(ask):
-    result = _call(ask, {"question": "富士山とは？"}, stream=_sse("富士", "山です"))
+def _prompt(capture: dict) -> str:
+    return capture["prompt"]
+
+
+def test_question_is_accepted_not_answered(ask):
+    capture: dict = {}
+    result = _call(ask, {"question": "富士山とは？"}, capture=capture)
     body = json.loads(result["body"])
 
-    assert result["statusCode"] == 200
-    # Text deltas are reassembled in order.
-    assert body["answer"] == "富士山です"
+    # 202, because the answer does not exist yet - the app polls for it.
+    assert result["statusCode"] == 202
+    assert body["requestId"]
+    assert "answer" not in body
     # A session id is generated so the app can continue the conversation.
     assert len(body["sessionId"]) >= ask.MIN_SESSION_ID_CHARS
+
+
+def test_the_queued_message_names_the_stored_request(ask):
+    # The worker is handed only an id; it reads the prompt back from the table.
+    capture: dict = {}
+    result = _call(ask, {"question": "q"}, capture=capture)
+
+    queued = json.loads(capture["message"]["MessageBody"])
+    assert queued["requestId"] == capture["requestId"]
+    assert queued["requestId"] == json.loads(result["body"])["requestId"]
 
 
 def test_supplied_session_id_is_passed_through(ask):
@@ -82,8 +95,8 @@ def test_supplied_session_id_is_passed_through(ask):
     capture: dict = {}
     result = _call(ask, {"question": "続き", "sessionId": session_id}, capture=capture)
 
-    # The same id must reach the runtime, or the conversation would restart.
-    assert capture["runtimeSessionId"] == session_id
+    # The same id must be stored, or the conversation would restart.
+    assert capture["sessionId"] == session_id
     assert json.loads(result["body"])["sessionId"] == session_id
 
 
@@ -102,7 +115,7 @@ def test_location_is_prepended_to_the_prompt(ask):
         capture=capture,
     )
 
-    prompt = json.loads(capture["payload"].decode())["question"]
+    prompt = _prompt(capture)
     assert "35.5" in prompt and "139.5" in prompt
     assert "この山は？" in prompt
 
@@ -118,7 +131,7 @@ def test_resolved_address_is_stated_as_fact(ask):
         capture=capture,
     )
 
-    prompt = json.loads(capture["payload"].decode())["question"]
+    prompt = _prompt(capture)
     assert "神奈川県箱根町" in prompt
     assert "推測しないこと" in prompt
 
@@ -133,7 +146,7 @@ def test_question_still_sent_when_the_address_is_unknown(ask):
         capture=capture,
     )
 
-    prompt = json.loads(capture["payload"].decode())["question"]
+    prompt = _prompt(capture)
     assert "ここはどこ？" in prompt
     assert "現在地の住所" not in prompt
 
@@ -154,7 +167,7 @@ def test_heading_is_resolved_before_the_prompt_is_built(ask):
         capture=capture,
     )
 
-    prompt = json.loads(capture["payload"].decode())["question"]
+    prompt = _prompt(capture)
     assert "進行方向: 北" in prompt
     assert "右手は東" in prompt
     assert "左手は西" in prompt
@@ -175,7 +188,7 @@ def test_heading_is_not_reversed(ask):
         capture=capture,
     )
 
-    prompt = json.loads(capture["payload"].decode())["question"]
+    prompt = _prompt(capture)
     assert "進行方向: 南" in prompt
     assert "右手は西" in prompt
 
@@ -187,7 +200,7 @@ def test_no_heading_when_the_rider_has_not_moved(ask):
     same = {"latitude": 35.0, "longitude": 139.0}
     _call(ask, {"question": "この辺は？", "start": same, "end": same}, capture=capture)
 
-    prompt = json.loads(capture["payload"].decode())["question"]
+    prompt = _prompt(capture)
     assert "進行方向" not in prompt
     assert "この辺は？" in prompt
 
@@ -208,7 +221,7 @@ def test_no_heading_when_the_two_points_are_close_but_not_identical(ask):
         capture=capture,
     )
 
-    prompt = json.loads(capture["payload"].decode())["question"]
+    prompt = _prompt(capture)
     assert "進行方向" not in prompt
     assert "この辺は？" in prompt
 
@@ -227,7 +240,7 @@ def test_heading_appears_once_the_rider_clears_the_threshold(ask):
         capture=capture,
     )
 
-    assert "進行方向: 北" in json.loads(capture["payload"].decode())["question"]
+    assert "進行方向: 北" in _prompt(capture)
 
 
 def test_elapsed_time_is_stated_for_a_later_question(ask):
@@ -244,7 +257,7 @@ def test_elapsed_time_is_stated_for_a_later_question(ask):
         capture=capture,
     )
 
-    assert "約3分後" in json.loads(capture["payload"].decode())["question"]
+    assert "約3分後" in _prompt(capture)
 
 
 def test_no_elapsed_note_on_the_first_question(ask):
@@ -255,7 +268,7 @@ def test_no_elapsed_note_on_the_first_question(ask):
         capture=capture,
     )
 
-    assert "分後" not in json.loads(capture["payload"].decode())["question"]
+    assert "分後" not in _prompt(capture)
 
 
 def test_no_elapsed_note_when_barely_any_time_has_passed(ask):
@@ -272,7 +285,7 @@ def test_no_elapsed_note_when_barely_any_time_has_passed(ask):
         capture=capture,
     )
 
-    assert "分後" not in json.loads(capture["payload"].decode())["question"]
+    assert "分後" not in _prompt(capture)
 
 
 @pytest.mark.parametrize("value", ["180", -5, True, None, 1.5])
@@ -289,8 +302,8 @@ def test_bogus_elapsed_seconds_is_ignored(ask, value):
         capture=capture,
     )
 
-    assert result["statusCode"] == 200
-    assert "分後" not in json.loads(capture["payload"].decode())["question"]
+    assert result["statusCode"] == 202
+    assert "分後" not in _prompt(capture)
 
 
 def test_no_heading_when_the_second_point_is_absent(ask):
@@ -302,7 +315,7 @@ def test_no_heading_when_the_second_point_is_absent(ask):
         capture=capture,
     )
 
-    prompt = json.loads(capture["payload"].decode())["question"]
+    prompt = _prompt(capture)
     assert "進行方向" not in prompt
     assert "ここはどこ？" in prompt
 
@@ -320,7 +333,7 @@ def test_malformed_second_point_is_ignored(ask):
         capture=capture,
     )
 
-    prompt = json.loads(capture["payload"].decode())["question"]
+    prompt = _prompt(capture)
     assert "進行方向" not in prompt
     assert "この辺は？" in prompt
 
@@ -345,25 +358,19 @@ def test_malformed_json_is_rejected(ask):
     assert result["statusCode"] == 400
 
 
-def test_empty_answer_becomes_502(ask):
-    result = _call(ask, {"question": "q"}, stream=_FakeStream([]))
-    assert result["statusCode"] == 502
-
-
-def test_agent_failure_does_not_leak_details(ask):
-    def boom(**_kwargs):
-        raise RuntimeError("arn:aws:iam::123456789012:role/secret not authorized")
-
-    ask._client.invoke_agent_runtime = boom
-    result = ask.handler(_event({"question": "q"}), None)
+@pytest.mark.parametrize("fail_on", ["store", "queue"])
+def test_failure_to_accept_does_not_leak_details(ask, fail_on):
+    # A question that cannot be queued is never going to be answered, so the
+    # app is told now rather than left polling for something that will not come.
+    result = _call(ask, {"question": "q"}, fail_on=fail_on)
 
     assert result["statusCode"] == 502
     # The AWS error may name internal resources, so it must not be echoed.
-    assert "123456789012" not in result["body"]
+    assert "unavailable" not in result["body"]
 
 
-def test_missing_arn_is_reported(monkeypatch):
-    monkeypatch.delenv("AGENT_ARN", raising=False)
+def test_missing_queue_url_is_reported(monkeypatch):
+    monkeypatch.delenv("QUEUE_URL", raising=False)
     module = importlib.import_module("handlers.ask")
     importlib.reload(module)
 

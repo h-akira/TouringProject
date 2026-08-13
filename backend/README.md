@@ -3,27 +3,43 @@
 ツーリングAI会話アプリのサーバー側。**AWS SAM** で管理する。
 設計の全体像は [docs/01_architecture.md](../docs/01_architecture.md) を参照。
 
-## 現在のステージ：AgentCore への中継（US-1.01・1.03）
+## 現在のステージ：非同期での中継（US-1.01・1.03・2.03）
 
-`POST /ask` は**質問と現在地を受け取り、AgentCore のエージェントに中継する**。
+`POST /ask` は**質問と現在地を受け取り、キューに積んで即座に返す**。
 回答の生成・会話の記憶・Web検索は**エージェント側の仕事**で、このLambdaは
 **入口の門番**（検証して渡す）に徹する（[pre-research/agentcore/AUTH.md](../pre-research/agentcore/AUTH.md)）。
 
+⚠️ **回答は `POST /ask` では返らない。** API Gateway の29秒上限に対し
+エージェントが最悪25.5秒かかるため、**待たない形に変えた**（[docs/01](../docs/01_architecture.md) §5.6）。
+アプリは `GET /ask/{requestId}` を叩いて回答を取りに来る。
+
+> ⚠️ **アプリで 403 が出たら、まずデプロイ漏れを疑う。**
+> API Gateway は**未定義のパスに 404 ではなく 403 を返す**ので、
+> エンドポイントを追加したのにデプロイしていないと、認証エラーのように見える。
+
 ```
 backend/
-  template.yaml            SAM定義（API Gateway + Lambda + IAM権限）
+  template.yaml            SAM定義（API Gateway + Lambda + SQS + DynamoDB + IAM）
   samconfig.toml           デプロイ設定（スタック名・リージョン・パラメータ）
   src/
     handlers/
-      ask.py               /ask のハンドラ（AgentCoreへ中継）
+      ask.py               POST /ask（住所・方位を確定してキューに積む）
+      worker.py            SQS経由で起動し、AgentCoreを呼んで結果を保存
+      result.py            GET /ask/{requestId}（アプリがポーリングする先）
       geocode.py           座標→住所（Amazon Location Service）
-  tests/
-    test_ask.py            ハンドラのテスト（AgentCore呼び出しはスタブ）
-    test_geocode.py        逆ジオコーディングのテスト
+    lib/
+      agent.py             AgentCore の呼び出しとSSEの組み立て
+      store.py             DynamoDB アクセス（⚠️ 二重処理を防ぐ条件付き書き込み）
+      geo.py               2点間の方位・距離
+  tests/                   ハンドラ・ライブラリのテスト（AWS呼び出しはスタブ）
   events/
     ask-post.json          sam local invoke 用（新規会話）
     ask-post-session.json  同（sessionId 付き＝会話の継続）
 ```
+
+> ⚠️ **SQSは「少なくとも1回」配信。** 同じ質問が2回届くと**AgentCoreを2回呼んで二重課金**になる。
+> `store.claim()` の条件付き書き込みで2つ目を弾いている（[docs/03](../docs/03_dynamodb_table.md) §4）。
+> **worker の Timeout(120秒) < 可視性タイムアウト(180秒)** の関係も崩さないこと。
 
 > ⚠️ **リージョンが分かれている。** このスタックは `ap-northeast-1`（東京）だが、
 > 呼び出す AgentCore Runtime は **`us-east-1`**（Web検索コネクタがそこ限定のため）。
@@ -72,12 +88,16 @@ AWS_PROFILE=touring sam local invoke AskFunction \
   --parameter-overrides "AgentRuntimeArn=$AGENT_ARN"
 ```
 
-`answer` と `sessionId` を含むJSONが返れば成功。
+`requestId` と `sessionId` を含むJSONが**すぐに**返れば成功（`statusCode` は **202**）。
 **同じ `sessionId` を送れば会話が続く**（`events/ask-post-session.json` を参照）。
+
+⚠️ **回答はここでは返らない。** `AskFunction` はキューに積むだけなので、
+ローカルで回答まで確かめるには SQS と DynamoDB が要る。**実際の確認はデプロイ後に行う**。
 
 > 📌 **初回は10秒前後かかる。** AgentCore のコンテナ起動（コールドスタート）のため。
 > 2回目以降は2〜3秒（実測値は [pre-research/voice/](../pre-research/voice/) §6）。
-> このため Lambda の `Timeout` は 60秒にしている（既定の10秒では初回が必ず失敗する）。
+> この待ち時間は `WorkerFunction`（`Timeout` 120秒）が引き受ける。
+> **アプリから見た待ち時間は変わらない**（タイムアウトしなくなるだけ）。
 
 > 実機スマホから Mac のローカルAPIに繋ぐ場合は、GPSのときと同様にネットワーク到達性
 > （同一Wi-Fi・ファイアウォール）に注意。必要なら一旦AWSにデプロイして試す。
