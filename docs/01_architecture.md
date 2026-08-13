@@ -321,92 +321,30 @@ Web検索（US-1.04）は AgentCore Gateway の**組み込みコネクタ**で�
   かつ**行動記録をプロンプトに残さない**ためでもある。
 - 1分未満は差が無いので添えない（最初の質問にも付かない）。
 
-## 5.6 ⚠️ 回答は非同期で受け取る（29秒制約の回避）
+## 5.6 ⚠️ 回答は非同期で受け取る
 
-**API Gateway は1リクエスト29秒で必ず切れる**（変更不可）。
-一方エージェントの生成には時間がかかり、**最悪25.5秒を実測**した。余裕は3.5秒しかない。
+**`POST /ask` は回答を返さない。** 202 と `requestId` を返し、
+アプリが `GET /ask/{requestId}` で取りに行く。
 
-さらに実測で分かったのは、**コールドスタートを除いても生成に約10秒かかる**こと:
-
-| | geocode | エージェント応答開始 | 生成完了まで |
-|---|---|---|---|
-| 初回（コールド） | 609ms | 8.6秒 | 12.5秒 |
-| 2回目（ウォーム） | 185ms | 0.27秒 | **10.2秒** |
-
-→ **音声化（STT/TTS）が乗れば確実に29秒を超える。** そこで**待つのをやめた**。
-
-### 構成
+API Gateway の29秒上限に対しエージェントの生成が最大25.5秒かかるため、
+**待つのをやめた**。エージェントの呼び出しは SQS 経由で別Lambdaが行う。
 
 ```mermaid
-sequenceDiagram
-    participant A as アプリ
-    participant L as ask Lambda
-    participant Q as SQS
-    participant W as worker Lambda
-    participant AC as AgentCore
-    participant D as DynamoDB
-
-    A->>L: POST /ask
-    L->>D: pending として保存
-    L->>Q: キューに積む
-    L-->>A: 202 { requestId }（約0.5秒）
-
-    Q->>W: 起動
-    W->>D: 処理権を獲得（条件付き書き込み）
-    W->>AC: 質問
-    Note over W,AC: 10〜25秒。API Gatewayを<br/>経由しないので29秒制約なし
-    AC-->>W: 回答
-    W->>D: done として保存
-
-    loop 回答ができるまで
-        A->>D: GET /ask/{requestId}
-        D-->>A: pending → … → done + 回答
-    end
+flowchart LR
+    A["アプリ"] -->|"POST /ask"| L["ask Lambda"]
+    L -->|"202 + requestId"| A
+    L --> Q["SQS"]
+    Q --> W["worker Lambda"]
+    W --> AC["AgentCore"]
+    W --> D[("DynamoDB")]
+    A -->|"GET /ask/{requestId}"| D
 ```
 
-- **`POST /ask` は回答を返さない。** 202 と `requestId` を返すだけ。
-- **待ち時間そのものは短くならない。** タイムアウトしなくなるだけ。
-  体感を縮めるには回答を短くするなど別の手が要る（`.memory/todo.md`）。
+⚠️ **SQSは「少なくとも1回」配信**なので、**二重処理＝AgentCoreの二重課金**を
+条件付き書き込みで防いでいる。**この仕組みを外さないこと。**
 
-### なぜ SQS を挟むか
-
-Lambda を別の Lambda から直接呼ばず、キューを介するのが一般的な作法。
-呼び出し元と処理側が切り離される。
-
-> 📌 Lambda の**非同期呼び出し**（`InvocationType='Event'`）にもAWS内部のキューがあり、
-> 直呼びではない。ただし**そのキューは自分のものではない**ので、
-> 滞留の可視化や制御ができない。ここでは可視性の高い SQS を採る。
-
-### ⚠️ 二重処理を防ぐ（最重要）
-
-**SQSは「少なくとも1回」配信**で、同じメッセージが2回届き得る。
-[AWS公式](https://docs.aws.amazon.com/lambda/latest/dg/with-sqs.html) も
-"we strongly recommend that you make your function code idempotent" と明記している。
-
-**このアプリでは二重処理＝AgentCoreの二重呼び出し＝二重課金**になる。対策は2層:
-
-| 対策 | 内容 |
-|---|---|
-| **時間の大小関係** | worker の Timeout(120秒) **＜** キューの可視性タイムアウト(180秒)。逆だと処理中に再配信される |
-| **条件付き書き込み** | worker は `pending → processing` を DynamoDB の `ConditionExpression` で行う。**2つ目は獲得に失敗し、AgentCoreを呼ばずに終わる** |
-
-詳細は [03_dynamodb_table.md](03_dynamodb_table.md) §4。
-
-### アプリ側のポーリング
-
-⚠️ **必ず止まるように作る**（無限に叩き続けない）。
-
-| 経過 | 間隔 |
-|---|---|
-| 0〜20秒 | 1秒 |
-| 20〜40秒 | 2秒 |
-| 40〜80秒 | 4秒 |
-| **80秒** | **打ち切ってエラー表示** |
-
-- 実測10〜13秒なので**大半は最初の帯で終わる**。
-- **画面を離れた/会話をリセットしたら即座に停止**する。
-- 通信が一時的に切れても、その1回は無視して打ち切り時間まで続ける
-  （走行中は電波が不安定なため）。
+→ **詳細は [01a_async_ask.md](01a_async_ask.md)**（ポーリングの止め方・時間の大小関係・実測値）。
+決定の経緯は [adr/001](../adr/001_async_ask.md)。
 
 ## 6. 認証：APIキー方式（アプリ画面から入力）
 
