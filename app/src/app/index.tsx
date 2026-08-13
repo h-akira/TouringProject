@@ -25,7 +25,7 @@ const APP_VERSION = Constants.expoConfig?.version ?? "?";
 // Backend base URL from the environment (.env -> EXPO_PUBLIC_API_BASE_URL).
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL;
 
-// 回答待ちのポーリング設定（docs/01 §5.6）。
+// 回答待ちのポーリング設定（docs/01a）。
 // 実測10〜13秒なので大半は最初の帯（1秒間隔）で終わる。
 // ⚠️ **必ず打ち切る。** 終わらない質問を延々と叩き続けない。
 const POLL_STEPS = [
@@ -178,7 +178,7 @@ export default function Index() {
 
   // 会話を始めた時刻。経過時間をサーバーに伝えるために持つ。
   // 走行中は質問ごとに場所が変わるので、AIが「さっきの山」を解釈するには
-  // 「前の質問からどれだけ経ったか」が要る（docs/01 §5.5）。
+  // 「前の質問からどれだけ経ったか」が要る（docs/01b）。
   const conversationStartedAt = useRef<number | null>(null);
 
   // 進行方向を出すための位置履歴（US-2.03）。直近2分ぶんだけ持つ。
@@ -348,7 +348,7 @@ export default function Index() {
   /**
    * 回答ができるまで GET /ask/{id} を叩く。
    *
-   * ⚠️ **必ず止まる**ことが重要（docs/01 §5.6）:
+   * ⚠️ **必ず止まる**ことが重要（docs/01a）:
    *   - done / error になったら止める
    *   - 80秒で打ち切る
    *   - 画面を離れたら止める（pollAbort が立つ）
@@ -478,7 +478,7 @@ export default function Index() {
             </Text>
           </Pressable>
           {/* 初回はコンテナ起動で10秒前後かかる（pre-research/voice/ §6）。
-              回答ができるまで裏で取りに行っている（docs/01 §5.6）。 */}
+              回答ができるまで裏で取りに行っている（docs/01a）。 */}
           {sending && (
             <Text style={styles.note}>
               回答を待っています（最初の質問は10秒ほど）

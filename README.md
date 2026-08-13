@@ -83,6 +83,7 @@ flowchart LR
 | # | 決定 | 日付 |
 |---|---|---|
 | [001](adr/001_async_ask.md) | 回答の受け取りを非同期にする | 2026-08-13 |
+| [002](adr/002_speech_on_device.md) | 音声はアプリ側で扱う（Nova 2 Sonic は日本語非対応） | 2026-08-12 |
+| [003](adr/003_agentcore_as_orchestrator.md) | 会話の司令塔を AgentCore にする（Lexは使わない） | 2026-07-30 |
 
-> 2026-08-13 より前の決定はADR化していない。
-> 経緯は [`pre-research/`](pre-research/) にある。
+> 番号は**採番順**で、日付順ではない。過去の決定も必要になった時点で書き起こす。

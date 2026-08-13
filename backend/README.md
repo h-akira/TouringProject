@@ -10,7 +10,7 @@
 **入口の門番**（検証して渡す）に徹する（[pre-research/agentcore/AUTH.md](../pre-research/agentcore/AUTH.md)）。
 
 ⚠️ **回答は `POST /ask` では返らない。** API Gateway の29秒上限に対し
-エージェントが最悪25.5秒かかるため、**待たない形に変えた**（[docs/01](../docs/01_architecture.md) §5.6）。
+エージェントが最悪25.5秒かかるため、**待たない形に変えた**（[docs/01a](../docs/01a_async_ask.md)）。
 アプリは `GET /ask/{requestId}` を叩いて回答を取りに来る。
 
 > ⚠️ **アプリで 403 が出たら、まずデプロイ漏れを疑う。**
