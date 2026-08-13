@@ -64,7 +64,7 @@ export interface components {
         };
         /**
          * @description Request body for POST /ask.
-         *     `start` is the rider's current location. `end` is the second GPS point used to derive the direction of travel; it is optional because heading is US-2.03 and outside the MVP.
+         *     `start` is the rider's current location, and the point the address is resolved from. `end` is an EARLIER position, used to derive the direction of travel: the rider is travelling away from `end` towards `start`. It stays optional - the server simply omits the heading when it is missing, or when the two points are within a few metres of each other (a rider stopped at a light, where the bearing would be GPS noise).
          */
         AskRequest: {
             /**
@@ -77,8 +77,16 @@ export interface components {
              * @example touring-0123456789abcdef0123456789abcdef
              */
             sessionId?: string;
+            /** @description The rider's current position. */
             start: components["schemas"]["Coordinates"];
+            /** @description An earlier position, for the direction of travel (US-2.03). The app picks it by walking back through its recent fixes for the newest one far enough away to give a meaningful bearing, and omits it entirely when there is none - while stopped, or just after a turn, where a heading would be stale or change second to second. */
             end?: components["schemas"]["Coordinates"];
+            /**
+             * Format: int32
+             * @description Seconds since the first question of this conversation. Lets the agent tell how much the rider has moved between turns, so it can resolve "that mountain" against the position it was asked at rather than the current one. Omit on the first question of a conversation.
+             * @example 180
+             */
+            elapsedSeconds?: number;
         };
         /** @description Response body for POST /ask. */
         AskResponse: {

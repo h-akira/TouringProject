@@ -14,7 +14,18 @@ DEFAULT_MODEL_ID = "us.anthropic.claude-sonnet-4-6"
 
 # Answers are read aloud while riding, so cap the output length. This also caps
 # the per-request output cost (docs/01_architecture.md section 7.1).
-DEFAULT_MAX_TOKENS = 300
+#
+# ⚠️ Too tight a cap does not shorten the answer - it truncates mid-sentence and
+# the whole call fails with MaxTokensReachedException, leaving a broken partial
+# message in the history. 300 was hit in practice once the system prompt grew.
+#
+# This budget is not just the spoken answer: with web search, the tool calls and
+# search queries the model emits count against it too, so a question that
+# searches twice can hit a cap that a direct answer never would.
+#
+# Keeping answers short is the system prompt's job, not this cap's - the cap is
+# only a backstop against a runaway response.
+DEFAULT_MAX_TOKENS = 800
 
 
 def load_model() -> BedrockModel:
