@@ -13,9 +13,10 @@
 エージェントが最悪25.5秒かかるため、**待たない形に変えた**（[docs/01a](../docs/01a_async_ask.md)）。
 アプリは `GET /ask/{requestId}` を叩いて回答を取りに来る。
 
-> ⚠️ **アプリで 403 が出たら、まずデプロイ漏れを疑う。**
-> API Gateway は**未定義のパスに 404 ではなく 403 を返す**ので、
-> エンドポイントを追加したのにデプロイしていないと、認証エラーのように見える。
+> ⚠️ **アプリで 403 が出たら、原因は2つある。**
+> ① **IP制限**（開発中は自分のIPのみ許可。回線が変われば弾かれる。下記 `AllowedIp`）
+> ② **デプロイ漏れ**（API Gateway は**未定義のパスに 404 ではなく 403 を返す**ため、
+> エンドポイントを追加してデプロイしていないと認証エラーのように見える）
 
 ```
 backend/
@@ -118,10 +119,52 @@ export AGENT_ARN=$(AWS_PROFILE=touring aws bedrock-agentcore-control \
   list-agent-runtimes --region us-east-1 \
   --query 'agentRuntimes[0].agentRuntimeArn' --output text)
 
-sam deploy --parameter-overrides "Environment=dev" "AgentRuntimeArn=$AGENT_ARN"
+sam deploy --parameter-overrides "Environment=dev" "AgentRuntimeArn=$AGENT_ARN" \
+  "AllowedIp=<自分のグローバルIP>/32"
 ```
 
 デプロイ後、出力される `ApiBaseUrl` に `/ask` を付けたURLがエンドポイント。
+
+### ⚠️ `AllowedIp`（開発中のIP制限）
+
+**このAPIにはまだ認証が無い。** URLを知られれば誰でも叩けて、
+**1リクエストごとにBedrockの課金が発生する**。
+そこで開発中は**リソースポリシーで自分のIPだけに絞っている**。
+
+| 渡す値 | 挙動 |
+|---|---|
+| `AllowedIp=203.0.113.5/32` | そのIP以外は **403** |
+| `AllowedIp=`（空） | **制限なし**（誰でも叩ける） |
+
+- ⚠️ **本番では空にする。** 走行中のスマホは回線を跨いでIPが変わるため、
+  固定すると動かなくなる。本番はAPIキーで守る想定（[docs/01](../docs/01_architecture.md) §8。**未実装**）。
+- ⚠️ **IPは勝手に変わる。** 一般的な回線のグローバルIPは動的で、
+  ルーター再起動や回線側の都合で**何もしなくても変わる**（実際に変わった）。
+  **403が出たらまずこれを疑う。**
+- 自分のIPは `curl -s https://checkip.amazonaws.com` で分かる。
+
+**403が出たときの切り分け:**
+
+```sh
+# ① いまの自分のIPを見る
+curl -s https://checkip.amazonaws.com
+
+# ② APIに直接叩いて確認する（<api-id> は自分のもの）
+curl -s -o /dev/null -w "%{http_code}\n" \
+  https://<api-id>.execute-api.ap-northeast-1.amazonaws.com/Prod/health
+```
+
+- **200 が返る** → IP制限は通っている。403の原因は別（デプロイ漏れ等）
+- **403 が返る** → ①のIPと `deploy-sam.sh` の `ALLOWED_IP` が食い違っている。
+  直して再デプロイする
+
+⚠️ **スマホとMacでIPが違うことがある。** スマホがモバイル回線（4G/5G）だと
+Wi-Fi経由のMacとは別のIPになり、**Macから通ってもアプリからは弾かれる**。
+実機で試すときはスマホを**同じWi-Fiに繋ぐ**こと。
+
+> 📌 **毎回打つのは面倒なので、リポジトリ直下に `deploy-sam.sh` を作って使っている。**
+> **IPとアカウントIDを含むので `.gitignore` 済み**（この手順を元に各自で作る）。
+> 中身は上記コマンドに `AllowedIp` を足しただけのもの。
 
 ### 必要なIAM権限（Lambda実行ロール）
 

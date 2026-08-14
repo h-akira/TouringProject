@@ -32,6 +32,23 @@ Parameters:
       Region of the AgentCore runtime. Not this stack's region: the runtime is
       pinned to us-east-1 by the web-search connector (docs/01 section 6).
 
+  AllowedIp:
+    Type: String
+    Default: ""
+    Description: >
+      Source IP (CIDR) allowed to call the API while it has no auth of its own.
+      Passed at deploy time rather than committed - the address is not secret,
+      but it says where the developer is, and this repository is public.
+
+      ⚠️ Development only. Leave it empty for production: a rider's phone moves
+      between networks constantly, so a pinned address would break the app.
+      Production is meant to be protected by API keys instead (docs/01 §8),
+      which are not built yet.
+
+Conditions:
+  # An empty AllowedIp means "no restriction", which is what production wants.
+  RestrictByIp: !Not [!Equals [!Ref AllowedIp, ""]]
+
 Globals:
   Function:
     Timeout: 10
@@ -45,6 +62,31 @@ Resources:
     Properties:
       Name: !Sub "apigw-trg-${Environment}-main"
       StageName: Prod
+      # ⚠️ The only thing standing between this API and anyone who learns its
+      # URL. There is no auth yet, and every call spends money on Bedrock, so
+      # while developing the API answers one address and nothing else.
+      #
+      # Both statements are needed. A lone Deny would leave nothing granting
+      # access in the first place, and every request would be rejected.
+      #
+      # Passing an empty AllowedIp removes the restriction entirely - see the
+      # parameter for why production has to do that.
+      Auth:
+        ResourcePolicy:
+          CustomStatements: !If
+            - RestrictByIp
+            - - Effect: Allow
+                Principal: "*"
+                Action: execute-api:Invoke
+                Resource: execute-api:/*
+              - Effect: Deny
+                Principal: "*"
+                Action: execute-api:Invoke
+                Resource: execute-api:/*
+                Condition:
+                  NotIpAddress:
+                    aws:SourceIp: [!Ref AllowedIp]
+            - !Ref AWS::NoValue
 
   # Single table for the whole app - see docs/03_dynamodb_table.md for why one
   # table holds every entity type, and how pk/sk distinguish them.
