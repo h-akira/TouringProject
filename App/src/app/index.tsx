@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import {
   Text,
   View,
@@ -10,6 +10,8 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Location from "expo-location";
 import Constants from "expo-constants";
+import { router, useFocusEffect } from "expo-router";
+import { loadApiKey, API_KEY_HEADER } from "@/api/apiKey";
 import type {
   AskRequest,
   AskAcceptedResponse,
@@ -41,8 +43,26 @@ function nextPollInterval(elapsedMs: number): number | null {
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/**
+ * HTTPエラーを、走行中でも意味の取れる文にする。
+ *
+ * ⚠️ **403 と 429 はAPIキー導入で現実的になったもの**で、原因がURLからは
+ * 判別できない。API Gateway は**キー違い・キー無し・未定義のパス**のいずれも
+ * 403 で返すため、断定せず両方の可能性を示す（Backend/README.md）。
+ */
+function describeHttpError(status: number, serverError?: string): string {
+  if (status === 403) {
+    return "エラー: APIキーが違うか、未設定です（設定画面を確認してください）";
+  }
+  if (status === 429) {
+    // Usage Plan の上限。日次クォータとレート制限のどちらかは区別できない。
+    return "エラー: 利用上限に達しました。しばらく待ってからお試しください";
+  }
+  return "エラー: " + (serverError ?? `HTTP ${status}`);
+}
+
 // これ未満しか動いていなければ、方位はGPSの誤差でしかない。
-// ⚠️ サーバー側の MIN_DISTANCE_METERS（backend/src/lib/geo.py）と同じ値。
+// ⚠️ サーバー側の MIN_DISTANCE_METERS（Backend/src/lib/geo.py）と同じ値。
 const MIN_DISTANCE_METERS = 5;
 
 // これより古い位置は「いまの進行方向」の根拠にしない。
@@ -65,7 +85,7 @@ type TrackedPoint = {
 };
 
 // 16方位のラベル（北から時計回り）。
-// ⚠️ backend/src/lib/geo.py の _COMPASS_POINTS と同じ並び。
+// ⚠️ Backend/src/lib/geo.py の _COMPASS_POINTS と同じ並び。
 const COMPASS_POINTS = [
   "北", "北北東", "北東", "東北東",
   "東", "東南東", "南東", "南南東",
@@ -76,7 +96,7 @@ const COMPASS_POINTS = [
 /**
  * 2点間の方位（真北から時計回りの度数、0〜360）。
  *
- * ⚠️ **サーバー側（backend/src/lib/geo.py）と同じ式を持つことになる。**
+ * ⚠️ **サーバー側（Backend/src/lib/geo.py）と同じ式を持つことになる。**
  * 本来は二重実装だが、ここでは**表示が目的**であり、
  * 画面の値とAIの回答がズレていないかの検算にもなる。
  * 質問に添えて送るのは変わらず座標2点で、**方位そのものは送らない**。
@@ -189,6 +209,27 @@ export default function Index() {
   // サーバーに送るのはあくまで座標2点（方位はLambdaが計算し直す）。
   const [heading, setHeading] = useState<number | null>(null);
 
+  // 端末に保存されたAPIキー（docs/01 §8）。未設定なら null。
+  // ⚠️ 保管は expo-secure-store で、.env には置かない（src/api/apiKey.ts）。
+  const [apiKey, setApiKey] = useState<string | null>(null);
+
+  // 設定画面から戻ってきたときに読み直す。
+  // ⚠️ **useEffect(…, []) では足りない。** expo-router は戻ってきた画面を
+  // 再マウントしないので、初回しか読まないとキーを保存した直後でも
+  // 「未設定」のまま質問できない。
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      (async () => {
+        const stored = await loadApiKey();
+        if (!cancelled) setApiKey(stored);
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }, []),
+  );
+
   // Androidのナビゲーションバー（戻るボタン等）と最下部のボタンが重なって
   // 押せなくなるのを防ぐ。実機で発生した問題。
   const insets = useSafeAreaInsets();
@@ -286,6 +327,11 @@ export default function Index() {
       setAnswer("エラー: API URL が未設定です（.env を確認）");
       return;
     }
+    // キーが無ければAPIは403を返すだけなので、手前で気づける形にする。
+    if (!apiKey) {
+      setAnswer("エラー: APIキーが未設定です（設定画面で入力してください）");
+      return;
+    }
     setSending(true);
     setAnswer(null);
     // 新しい質問を始めるので、前回の中断指示は解除する。
@@ -317,12 +363,15 @@ export default function Index() {
       // ① 質問を出す。回答はここでは返らない（202 + requestId）。
       const res = await fetch(`${API_BASE_URL}/ask`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          [API_KEY_HEADER]: apiKey,
+        },
         body: JSON.stringify(requestBody),
       });
       const data = (await res.json()) as AskAcceptedResponse & { error?: string };
       if (!res.ok) {
-        setAnswer("エラー: " + (data.error ?? `HTTP ${res.status}`));
+        setAnswer(describeHttpError(res.status, data.error));
         return;
       }
       // 次回のために発行されたIDを覚えておく（これが会話継続の要）
@@ -335,7 +384,7 @@ export default function Index() {
 
       // ② 回答ができるまで取りに行く。
       // null は「中断された」= 画面を離れた/リセットされた。表示は変えない。
-      const answerText = await pollForAnswer(data.requestId);
+      const answerText = await pollForAnswer(data.requestId, apiKey);
       if (answerText !== null) setAnswer(answerText);
     } catch (e) {
       setAnswer("送信に失敗しました: " + String(e));
@@ -354,8 +403,14 @@ export default function Index() {
    *
    * 戻り値が null なら中断された、という意味。空文字と区別する必要がある
    * （空文字だと「回答なし」として画面が無反応に見える）。
+   *
+   * ⚠️ **APIキーは引数で受け取る**（state を直接読まない）。待っている間に
+   * 設定画面でキーが変わっても、この回答は始めたときのキーで取りに行く。
    */
-  async function pollForAnswer(requestId: string): Promise<string | null> {
+  async function pollForAnswer(
+    requestId: string,
+    key: string,
+  ): Promise<string | null> {
     const startedAt = Date.now();
 
     for (;;) {
@@ -370,10 +425,15 @@ export default function Index() {
 
       let result: AskResultResponse & { error?: string };
       try {
-        const res = await fetch(`${API_BASE_URL}/ask/${requestId}`);
+        const res = await fetch(`${API_BASE_URL}/ask/${requestId}`, {
+          headers: { [API_KEY_HEADER]: key },
+        });
         result = (await res.json()) as AskResultResponse & { error?: string };
         if (!res.ok) {
-          return "エラー: " + (result.error ?? `HTTP ${res.status}`);
+          // ⚠️ 429 はここでは諦めない。ポーリングは秒間1回叩くので
+          // 一時的にレート上限に触れることがあり、次の周回で通る。
+          if (res.status === 429) continue;
+          return describeHttpError(res.status, result.error);
         }
       } catch (e) {
         // 走行中は電波が切れることがある。1回の失敗では諦めず、
@@ -420,6 +480,23 @@ export default function Index() {
       <Text style={styles.version}>v{APP_VERSION}</Text>
 
       <Text style={styles.status}>{status}</Text>
+
+      {/* キーが無いと質問できないので、その場合だけ目立たせて設定へ促す。
+          設定済みなら小さなリンクに留める（走行中に押す画面ではない）。 */}
+      {apiKey === null ? (
+        <Pressable
+          style={styles.setupBanner}
+          onPress={() => router.push("/settings")}
+        >
+          <Text style={styles.setupBannerText}>
+            APIキーが未設定です。タップして設定してください
+          </Text>
+        </Pressable>
+      ) : (
+        <Pressable onPress={() => router.push("/settings")}>
+          <Text style={styles.settingsLink}>設定</Text>
+        </Pressable>
+      )}
 
       {coords && (
         <View style={styles.card}>
@@ -526,6 +603,17 @@ const styles = StyleSheet.create({
   status: { fontSize: 16, color: "#FFFFFF" },
   // 開発用の表示なので目立たせない。
   version: { fontSize: 11, color: "#666677" },
+  // キー未設定は質問が一切通らない状態なので、警告色で目立たせる。
+  setupBanner: {
+    alignSelf: "stretch",
+    backgroundColor: "#4A2A1E",
+    borderWidth: 1,
+    borderColor: "#FF6B35",
+    padding: 14,
+    borderRadius: 8,
+  },
+  setupBannerText: { color: "#FF9E7A", fontSize: 14, textAlign: "center" },
+  settingsLink: { fontSize: 13, color: "#888899" },
   compass: { alignItems: "center", marginTop: 12, gap: 2 },
   // 矢印そのものを回して進行方向を指す。
   compassNeedle: { fontSize: 34, color: "#FF6B35", lineHeight: 38 },

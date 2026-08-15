@@ -41,7 +41,7 @@ watchman --version   # 入ったか確認
 
 ## 3. Expo プロジェクトの作成
 
-リポジトリ直下に `app/` サブディレクトリとして作成する（ドキュメント群とアプリコードを分離するため。[プロジェクト方針](../pre-research/00_project_policy.md) 参照）。
+リポジトリ直下に `App/` サブディレクトリとして作成する（ドキュメント群とアプリコードを分離するため。[プロジェクト方針](../pre-research/00_project_policy.md) 参照）。
 
 ```sh
 # リポジトリのルートで実行
@@ -50,18 +50,18 @@ npx create-expo-app@latest app
 
 - テンプレートは `expo-template-default`（**TypeScript対応**、`expo-router` によるファイルベースのルーティング付き）。
 - 途中で「既存のGitリポジトリ内だが新規git初期化をスキップするか？」と聞かれたら **Yes（スキップ）**。
-  本リポジトリは既にgit管理下なので、`app/` 用に別のgitを作らない。
-- `npm install` まで自動で走り、`app/node_modules/` に依存が入る。
+  本リポジトリは既にgit管理下なので、`App/` 用に別のgitを作らない。
+- `npm install` まで自動で走り、`App/node_modules/` に依存が入る。
 
 ### できたもの（主なもの）
 
 | パス | 役割 |
 |---|---|
-| `app/src/app/` | 画面（ファイル名がそのままルートになる。`index.tsx` が最初の画面） |
-| `app/src/components/` | 再利用するUI部品 |
-| `app/package.json` | 依存とスクリプト（`start` / `android` / `ios` / `web`） |
-| `app/app.json` | Expoアプリの設定 |
-| `app/tsconfig.json` | TypeScript設定 |
+| `App/src/app/` | 画面（ファイル名がそのままルートになる。`index.tsx` が最初の画面） |
+| `App/src/components/` | 再利用するUI部品 |
+| `App/package.json` | 依存とスクリプト（`start` / `android` / `ios` / `web`） |
+| `App/app.json` | Expoアプリの設定 |
+| `App/tsconfig.json` | TypeScript設定 |
 
 ## 4. 開発サーバーの起動とプレビュー（自分のターミナルで実行）
 
@@ -69,7 +69,7 @@ npx create-expo-app@latest app
 > **VSCodeのターミナル等で自分で実行する**のがよい（QRが自分の画面に出る）。
 
 ```sh
-cd app
+cd App
 npx expo start
 ```
 
@@ -105,7 +105,7 @@ QRを読んだ直後にこのエラーが出る場合、原因は **プロジェ
 **対処: 安定版SDK（例: SDK 54）にダウングレードする**（実機Expo Goで手軽に確認したい学習用途に最適）。
 
 ```sh
-cd app
+cd App
 
 # 1. expo本体を安定版に下げる
 npm install expo@^54.0.0
@@ -190,5 +190,5 @@ SDKをダウングレードすると、`package.json` の依存を合わせて�
 ## 参考
 
 - [Expo 公式ドキュメント](https://docs.expo.dev/)
-- [Create your first app · Expo](https://docs.expo.dev/tutorial/create-your-first-app/)
+- [Create your first app · Expo](https://docs.expo.dev/tutorial/create-your-first-App/)
 - [Expo App Stuck on Splash Screen | Fix (HeyVish)](https://heyvish.com/blog/expo-go-app-stuck-on-splash-screen)

@@ -14,7 +14,7 @@
 - **Web(PWA)は却下済み**（常駐＋完全ハンズフリーがブラウザでは不可能）。**前提を覆さない。**
 - **唯一残る技術的リスクは、RNでの常駐＋ウェイクワードの安定性。**
   破綻したらKotlinネイティブへ再検討。
-- **IaCは `backend/`=SAM、`touringAgent/`=CDK**（`agentcore` CLIの仕様）。混同しない。
+- **IaCは `Backend/`=SAM、`Agent/`=CDK**（`agentcore` CLIの仕様）。混同しない。
 
 ### 実装の重心
 
@@ -51,25 +51,35 @@
 - 本文は要件に絞り、**理由・実装方針・実測データは末尾の「補足A/B…」へ**。
 ## 開発環境（Mac + 実機Android + Expo Go）
 
-- 動作確認は **実機Android + Expo Go**（`cd app && npx expo start` → QRを読む）。
+- 動作確認は **実機Android + Expo Go**（`cd App && npx expo start` → QRを読む）。
   ⚠️ **`expo start` は対話型TUIなのでAIがバックグラウンド実行しない。**
   ユーザー自身のターミナルで起動してもらう。手順は [learning/03](learning/03_dev_environment_setup.md)。
 - **ウェイクワード/バックグラウンド常駐の段階で Expo Development Build に移行**する
   （そこで初めて Android SDK 等に踏み込む）。
-- ⚠️ **`app/` を変更したら `app/app.json` の `version` を必ず上げる。**
+- ⚠️ **`App/` を変更したら `App/app.json` の `version` を必ず上げる。**
   実機の画面左上に表示され、**更新が反映されたかの判別に使う**
   （Expo Go はキャッシュが残るため）。**上げ忘れると判別できない。**
 
 ## AWS / バックエンド開発
 
 - ⚠️ **リージョンが用途で分かれている**（混同すると動かない）:
-  `backend/`（SAM）= **東京**、`touringAgent/`（AgentCore）= **us-east-1**。
+  `Backend/`（SAM）= **東京**、`Agent/`（AgentCore）= **us-east-1**。
 - **リソース命名規約**: `<リソースタイプ>-trg-<env>-<識別子>`
   （`trg`=touring、`env`=`dev`/`prod`、識別子は単一なら `main`）。
   例: `stack-trg-dev-main` / `lambda-trg-dev-ask` / `dynamodb-trg-dev-main`
 - ⚠️ **デプロイと実機確認はユーザーが実行する。** AIは実行しない。
-  手順・必要な権限は [backend/README.md](backend/README.md)。
+  手順・必要な権限は [Backend/README.md](Backend/README.md)。
 - ⚠️ **AWS認証情報・アカウントIDは絶対に含めない**（`samconfig.toml` にも）。詳細は下記。
+
+### CI/CD（pushで自動デプロイ）
+
+**`main` にpushすると CodeBuild が Agent → Backend の順にデプロイする**（[CICD/](CICD/)）。
+
+- ⚠️ **順序を入れ替えられない。** Agentが Runtime ARN を**SSMに書き**、
+  BackendのSAMがそれを読む。**リージョンが違うのでCFnのエクスポートは使えない。**
+- ⚠️ **手順書は `buildspec.yml`（リポジトリ直下）。** `CICD/` にあるのは
+  CodeBuild自体を作るCloudFormation。
+- ⚠️ **ドキュメントだけの変更ではビルドしない**（パスフィルタ `^(Agent/|Backend/|CICD/|buildspec\.yml$)`）。
 
 ## ⚠️ 公開リポジトリの鉄則（最重要）
 
@@ -121,8 +131,8 @@ grep -rnE '\b[0-9]{12}\b|\b(o-[a-z0-9]{10,}|r-[a-z0-9]{4,}|p-[a-z0-9]{8,})\b|AKI
 
 - **`docs/02_api_openapi.yaml` が正本**（フロント↔バックの契約）。
   API Gatewayの `DefinitionBody` には未組込（契約・型生成・ドキュメント用途）。
-- ⚠️ **契約を変えたら型を再生成する**: `cd app && npm run gen:api`
-  → `app/src/api/schema.ts`（**生成物もコミット対象**）。エイリアスは `src/api/types.ts`。
+- ⚠️ **契約を変えたら型を再生成する**: `cd App && npm run gen:api`
+  → `App/src/api/schema.ts`（**生成物もコミット対象**）。エイリアスは `src/api/types.ts`。
 
 ## 📌 `.memory/` — セッションを越えて残す記憶
 
@@ -189,9 +199,11 @@ grep -rnE '\b[0-9]{12}\b|\b(o-[a-z0-9]{10,}|r-[a-z0-9]{4,}|p-[a-z0-9]{8,})\b|AKI
 - **`max_tokens` が厳しすぎると、回答が短くなるのではなく失敗する**
   （途中で切れ、壊れた部分応答が会話履歴に残る）。
   ⚠️ **Web検索のツール呼び出しも同じ枠を消費する**ので、読み上げる文章より余裕が要る。
-- **アプリで 403 が出たら2つ疑う**: ①**開発中のIP制限**（回線が変われば弾かれる。
-  `backend/README.md` の `AllowedIp`）②**デプロイ漏れ**（API Gateway は
-  **未定義のパスに 404 ではなく 403** を返す）。
+- **アプリで 403 が出たら2つ疑う**: ①**APIキー**（未設定・誤り。アプリの設定画面）
+  ②**デプロイ漏れ**（API Gateway は**未定義のパスに 404 ではなく 403** を返す）。
+  ⚠️ **切り分けは `/health`**（キー不要）。200なら API は生きている。
+- **`/health` 以外はAPIキーが必須。** キーの取り出し方は `Backend/README.md`。
+  ⚠️ **クォータはポーリングも消費する**（1問 ≒ 11回）。
 - **エージェントのソースは S3ソース(.zip)方式**（CodeZip）。Docker不要。
 
 - Bedrock/Lambda等のClaude API実装を書く際は **`claude-api` スキルを参照**する

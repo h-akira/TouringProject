@@ -1,4 +1,4 @@
-# backend/ — AWS バックエンド（SAM）
+# Backend/ — AWS バックエンド（SAM）
 
 ツーリングAI会話アプリのサーバー側。**AWS SAM** で管理する。
 設計の全体像は [docs/01_architecture.md](../docs/01_architecture.md) を参照。
@@ -14,13 +14,16 @@
 アプリは `GET /ask/{requestId}` を叩いて回答を取りに来る。
 
 > ⚠️ **アプリで 403 が出たら、原因は2つある。**
-> ① **IP制限**（開発中は自分のIPのみ許可。回線が変われば弾かれる。下記 `AllowedIp`）
+> ① **APIキー**（未設定・誤り。アプリの設定画面で確認する。下記「APIキー」）
 > ② **デプロイ漏れ**（API Gateway は**未定義のパスに 404 ではなく 403 を返す**ため、
 > エンドポイントを追加してデプロイしていないと認証エラーのように見える）
+>
+> **切り分けは `/health`**（キー不要）。ここが 200 なら API は生きているので、
+> 403 の原因はキーかデプロイ漏れのどちらか。
 
 ```
-backend/
-  template.yaml            SAM定義（API Gateway + Lambda + SQS + DynamoDB + IAM）
+Backend/
+  template.yaml            SAM定義（API Gateway + APIキー/Usage Plan + Lambda + SQS + DynamoDB + IAM）
   samconfig.toml           デプロイ設定（スタック名・リージョン・パラメータ）
   src/
     handlers/
@@ -55,7 +58,7 @@ Nova 2 Sonic（音声→音声）は日本語非対応のため採用しなか�
 ### テスト
 
 ```sh
-cd backend
+cd Backend
 python3 -m pytest tests/ -q
 ```
 
@@ -75,7 +78,7 @@ python3 -m pytest tests/ -q
 （モックだった頃と違い、権限なしでは動かない）。
 
 ```sh
-cd backend
+cd Backend
 sam build
 
 # AgentCore Runtime の ARN を取得（実値はコミットしないこと）
@@ -105,66 +108,107 @@ AWS_PROFILE=touring sam local invoke AskFunction \
 
 ## AWS にデプロイする（実機から試すとき）
 
-デプロイ設定は `samconfig.toml` に記述済み（スタック名・リージョン・パラメータ）。
-そのため対話なしでデプロイできる:
+> 📌 **通常は手で叩かなくてよい。** `main` にpushすれば CodeBuild が
+> Agent → Backend の順にデプロイする（[CICD/](../CICD/)）。
+> 以下は**手元から直接デプロイしたいとき**の手順。
 
-⚠️ **`AgentRuntimeArn` はコマンドラインで渡す。**
-ARNには**AWSアカウントIDが含まれる**ため、`samconfig.toml` には書かない（公開リポジトリの鉄則）。
+デプロイ設定は `samconfig.toml` に記述済み（スタック名・リージョン・パラメータ）。
+そのため**引数なしでデプロイできる**:
 
 ```sh
-cd backend
+cd Backend
 sam build
+sam deploy
+```
 
-export AGENT_ARN=$(AWS_PROFILE=touring aws bedrock-agentcore-control \
+⚠️ **`AgentRuntimeArn` に渡しているのはARNではなく、SSMパラメータの「名前」**
+（`/trg/dev/agent-runtime-arn`）。CloudFormationがそれを解決して値を取るので、
+**名前にアカウントIDは含まれず** `samconfig.toml` にコミットできる。
+
+⚠️ **Agentを先にデプロイしておく必要がある**（そのパラメータを書くのはAgent側）。
+無いと `Parameter /trg/... not found` で失敗する。手元でやるなら:
+
+```sh
+cd Agent && AWS_REGION=us-east-1 agentcore deploy -y
+
+# ⚠️ 書き込むのは「東京」。読む側（SAM）がそこを見るため
+AGENT_ARN=$(AWS_PROFILE=touring aws bedrock-agentcore-control \
   list-agent-runtimes --region us-east-1 \
   --query 'agentRuntimes[0].agentRuntimeArn' --output text)
-
-sam deploy --parameter-overrides "Environment=dev" "AgentRuntimeArn=$AGENT_ARN" \
-  "AllowedIp=<自分のグローバルIP>/32"
+AWS_PROFILE=touring aws ssm put-parameter \
+  --name /trg/dev/agent-runtime-arn --value "$AGENT_ARN" \
+  --type String --overwrite --region ap-northeast-1
 ```
 
 デプロイ後、出力される `ApiBaseUrl` に `/ask` を付けたURLがエンドポイント。
 
-### ⚠️ `AllowedIp`（開発中のIP制限）
+### 🔑 APIキー
 
-**このAPIにはまだ認証が無い。** URLを知られれば誰でも叩けて、
-**1リクエストごとにBedrockの課金が発生する**。
-そこで開発中は**リソースポリシーで自分のIPだけに絞っている**。
+**このAPIはAPIキーが無いと叩けない**（`/health` を除く）。
+キーはスタックが**自動生成する**ので、デプロイ後に値を取り出してアプリに入れる。
 
-| 渡す値 | 挙動 |
-|---|---|
-| `AllowedIp=203.0.113.5/32` | そのIP以外は **403** |
-| `AllowedIp=`（空） | **制限なし**（誰でも叩ける） |
-
-- ⚠️ **本番では空にする。** 走行中のスマホは回線を跨いでIPが変わるため、
-  固定すると動かなくなる。本番はAPIキーで守る想定（[docs/01](../docs/01_architecture.md) §8。**未実装**）。
-- ⚠️ **IPは勝手に変わる。** 一般的な回線のグローバルIPは動的で、
-  ルーター再起動や回線側の都合で**何もしなくても変わる**（実際に変わった）。
-  **403が出たらまずこれを疑う。**
-- 自分のIPは `curl -s https://checkip.amazonaws.com` で分かる。
-
-**403が出たときの切り分け:**
+⚠️ **キーの値はスタックの Outputs に出していない。**
+Outputs は `describe-stacks` の権限があれば誰でも読めるうえ、CIのログにも残るため。
+出しているのは**キーのID**だけで、値は次のコマンドで取る:
 
 ```sh
-# ① いまの自分のIPを見る
-curl -s https://checkip.amazonaws.com
-
-# ② APIに直接叩いて確認する（<api-id> は自分のもの）
-curl -s -o /dev/null -w "%{http_code}\n" \
-  https://<api-id>.execute-api.ap-northeast-1.amazonaws.com/Prod/health
+# キーのIDを取得 → その値を引く（--include-value が無いと値は返らない）
+AWS_PROFILE=touring aws apigateway get-api-key \
+  --api-key "$(AWS_PROFILE=touring aws cloudformation describe-stacks \
+      --stack-name stack-trg-dev-main --region ap-northeast-1 \
+      --query "Stacks[0].Outputs[?OutputKey=='ApiKeyId'].OutputValue" --output text)" \
+  --include-value --region ap-northeast-1 \
+  --query value --output text
 ```
 
-- **200 が返る** → IP制限は通っている。403の原因は別（デプロイ漏れ等）
-- **403 が返る** → ①のIPと `deploy-sam.sh` の `ALLOWED_IP` が食い違っている。
-  直して再デプロイする
+⚠️ **出てきた値はコミットしない**（公開リポジトリの鉄則）。
+アプリの**設定画面に貼り付ける**と `expo-secure-store` に保管される。
 
-⚠️ **スマホとMacでIPが違うことがある。** スマホがモバイル回線（4G/5G）だと
-Wi-Fi経由のMacとは別のIPになり、**Macから通ってもアプリからは弾かれる**。
-実機で試すときはスマホを**同じWi-Fiに繋ぐ**こと。
+**動作確認:**
 
-> 📌 **毎回打つのは面倒なので、リポジトリ直下に `deploy-sam.sh` を作って使っている。**
-> **IPとアカウントIDを含むので `.gitignore` 済み**（この手順を元に各自で作る）。
-> 中身は上記コマンドに `AllowedIp` を足しただけのもの。
+```sh
+# キー無し → 403
+curl -s -o /dev/null -w "%{http_code}\n" https://<api-id>.execute-api.ap-northeast-1.amazonaws.com/Prod/ask
+
+# キー付き → 400（bodyが空なので。403でなければ認証は通っている）
+curl -s -o /dev/null -w "%{http_code}\n" -X POST \
+  -H "x-api-key: <キー>" \
+  https://<api-id>.execute-api.ap-northeast-1.amazonaws.com/Prod/ask
+
+# /health はキー不要 → 200
+curl -s -o /dev/null -w "%{http_code}\n" https://<api-id>.execute-api.ap-northeast-1.amazonaws.com/Prod/health
+```
+
+> ⚠️ **モバイル回線でも通る。** 以前のIP制限と違い、キーは回線に依存しない。
+> **スマホを同じWi-Fiに繋ぐ必要はもう無い。**
+
+### 流量制限（Usage Plan）
+
+キー単位で上限をかけている。**値はすべて仮**で、デプロイ時に変えられる。
+
+| パラメータ | 既定値 | 意味 |
+|---|---|---|
+| `DailyQuota` | 2000 | **1日あたりの呼び出し回数** |
+| `ThrottleRate` | 5 | 毎秒の定常レート |
+| `ThrottleBurst` | 10 | 瞬間的な上限 |
+
+⚠️ **クォータは「問い数」ではなく「呼び出し回数」。**
+1問 ＝ `POST` 1回 ＋ ポーリングの `GET` 約10回なので、**2000回 ≒ 180問/日**。
+「1日200問」のつもりで200にすると**約18問で打ち止め**になる。
+
+⚠️ **`ThrottleRate` を1にしてはいけない。** アプリのポーリングは**1秒間隔**なので、
+自分の質問がレート上限に当たる。
+
+```sh
+# 上限を変えて再デプロイする例
+# ⚠️ --parameter-overrides を付けると samconfig.toml の指定は「併合されず置き換わる」。
+#    変えない値も明示的に並べること（省くとテンプレートの既定値に戻る）。
+sam deploy --parameter-overrides \
+  "Environment=dev" "AgentRuntimeArn=/trg/dev/agent-runtime-arn" "DailyQuota=5000"
+```
+
+上限に達すると **429** が返る。アプリは「利用上限に達しました」と表示する
+（⚠️ ポーリング中の429は一時的なものとして**そのまま再試行する**）。
 
 ### 必要なIAM権限（Lambda実行ロール）
 
@@ -203,9 +247,9 @@ CloudFormation・S3（SAM管理バケット）・Lambda・API Gateway・IAM の�
 
 **次にやることは `.memory/todo.md` を見ること。** ここには「このLambdaの担当範囲」だけ挙げる。
 
-- **APIキー認証 + Usage Plan**（流量制限）
-- **入力量の上限**（文字数の検証。現在は `question` の500文字上限のみ）
 - **コスト暴走対策**: AWS Budgets → 予算超過で自動遮断
+  （⚠️ キーとクォータは入ったが、**予算による遮断だけが残っている**）
+- **DLQの監視**（`sqs-trg-dev-ask-dlq` に溜まっても気づく手段が無い）
 
 > ⚠️ **STT/TTS はこのLambdaには入らない。** 音声は**アプリ側で**Transcribe/Pollyを呼ぶ方式に決定
 > （[pre-research/voice/](../pre-research/voice/)）。このAPIはテキストを受け取る。

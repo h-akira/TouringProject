@@ -325,7 +325,7 @@ AWSへのデプロイ済み。Runtime `touringAgent_agentcore_trg_dev_ask` が `
 - [x] ツール実行（WebSearch等）の実装方法 — **解決済み**。AgentCore Gateway の組み込みコネクタを
       MCP経由で使う形で US-1.04 を実装した（[../websearch/](../websearch/)）
 - [ ] 最小権限ポリシーへの絞り込み（現在は PowerUser + IAMFullAccess。CloudTrailで実使用権限を確認して絞る）
-- [ ] 既存の `backend/`（SAM）と `touringAgent/`（CDK）の連携方法（相互参照が要る場合）
+- [ ] 既存の `Backend/`（SAM）と `Agent/`（CDK）の連携方法（相互参照が要る場合）
 
 ## 11. 現時点の暫定方針
 
@@ -334,7 +334,7 @@ AWSへのデプロイ済み。Runtime `touringAgent_agentcore_trg_dev_ask` が `
 | セッション管理 | **AgentCore Runtime** | ✅ 確定 |
 | エージェントソース | **S3ソース（.zip）** | ◯ 高い（要件に合致） |
 | モデル | ~~`jp.anthropic.claude-sonnet-4-6`~~ → **`us.anthropic.claude-sonnet-4-6`** | ✅ 確定。US-1.04で us-east-1 へ移設したため `us.` 系に変更（[../websearch/](../websearch/)） |
-| IaC | **CDK**（qualifier `trg-dev`）。backend/ はSAMのまま | ✅ 確定 |
+| IaC | **CDK**（qualifier `trg-dev`）。Backend/ はSAMのまま | ✅ 確定 |
 | 会話の記憶 | **セッション内のみ**（AgentCore Memory は使わない） | ✅ 確定（要件が「一問一答＋α」のため） |
 | Lambdaの要否 | **未決** | ✗ 調査次第 |
 | タイムアウト値 | 未決 | ✗ 実測次第 |

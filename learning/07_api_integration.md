@@ -57,7 +57,7 @@ APIのURLをコードに直書きせず、**環境変数**で管理する。
 - コード側は **`process.env.EXPO_PUBLIC_XXX`** で参照する。
 
 ```
-# app/.env
+# App/.env
 EXPO_PUBLIC_API_BASE_URL=https://xxxx.execute-api.ap-northeast-1.amazonaws.com/Prod
 ```
 
@@ -78,8 +78,8 @@ const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL;
 - 代わりに **`.env.example`（プレースホルダだけ）をコミット**し、「何を設定すべきか」を共有する。
 
 ```
-app/.env          ← 実際の値。gitで追跡しない
-app/.env.example  ← テンプレート。コミットする
+App/.env          ← 実際の値。gitで追跡しない
+App/.env.example  ← テンプレート。コミットする
 ```
 
 ## 4. ハマりどころ：`.env` を変えても反映されない
@@ -111,7 +111,7 @@ React Query を導入するほどではないので、**型だけを生成する
 ### 使い方
 
 ```sh
-# app/ で実行。docs/02 の仕様 → src/api/schema.ts を生成
+# App/ で実行。docs/02 の仕様 → src/api/schema.ts を生成
 npm run gen:api
 # 中身: openapi-typescript ../docs/02_api_openapi.yaml -o src/api/schema.ts
 ```

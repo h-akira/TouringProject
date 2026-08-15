@@ -69,7 +69,7 @@ aws s3api delete-bucket --region ap-northeast-1 \
 ### 2.2 qualifier 付きで bootstrap
 
 ```sh
-cd touringAgent/agentcore/cdk
+cd Agent/agentcore/cdk
 
 ./node_modules/.bin/cdk bootstrap \
   --toolkit-stack-name CDKToolkit-trg-dev \
@@ -90,7 +90,7 @@ aws iam list-attached-role-policies \
 
 ## 3. プロジェクト生成（初回のみ）
 
-既に `touringAgent/` があるなら不要。ゼロから作り直す場合の記録:
+既に `Agent/` があるなら不要。ゼロから作り直す場合の記録:
 
 ```sh
 agentcore create \
@@ -155,7 +155,7 @@ window_size は「毎回Bedrockに再送するターン数」＝入力トーク�
 ## 5. ローカル実行
 
 ```sh
-cd touringAgent/app/agentcore_trg_dev_ask
+cd Agent/app/agentcore_trg_dev_ask
 uv sync                                   # 依存を同期
 
 # 認証情報を環境変数に展開（AWS_PROFILE だけでは子プロセスに渡らないことがある）
@@ -178,7 +178,7 @@ curl http://localhost:8080/ping
 ## 6. デプロイ
 
 ```sh
-cd touringAgent
+cd Agent
 eval "$(aws configure export-credentials --profile touring --format env)"
 export AWS_DEFAULT_REGION=ap-northeast-1
 

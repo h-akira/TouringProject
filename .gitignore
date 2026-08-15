@@ -59,5 +59,8 @@ Thumbs.db
 # === 非公開メモ（キャリア観点など個人的な検討）===
 pre-research/XX_*.md
 
-# === ローカル専用のデプロイスクリプト（開発中のIP制限など環境固有の値を含む）===
+# === ローカル専用のデプロイスクリプト（アカウントID等の環境固有の値を含む）===
 deploy-sam.sh
+# CICD/deploy-sample.sh をコピーして作るもの。CodeStar接続ARN（＝アカウントID）を含む。
+# 雛形の deploy-sample.sh は追跡する。
+CICD/deploy.sh

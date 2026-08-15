@@ -4,8 +4,8 @@ Description: >
   Touring AI voice app - backend. POST /ask resolves the rider's address and
   forwards the question to the AgentCore agent, which owns the conversation
   and web search; GET /health is a liveness check. Speech happens in the app
-  (see pre-research/voice/), so this API takes text. API-key auth, usage
-  plans, and cost controls come later (see docs/01_architecture.md).
+  (see pre-research/voice/), so this API takes text. Access is controlled by
+  an API key with a usage plan (see docs/01_architecture.md sections 8-9).
 
 # Naming convention: <resource-type>-trg-<env>-<identifier>
 #   trg = touring, env = dev/prod, identifier = "main" for a single/primary
@@ -20,10 +20,21 @@ Parameters:
     Description: Deployment environment, used in resource names.
 
   AgentRuntimeArn:
-    Type: String
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /trg/dev/agent-runtime-arn
     Description: >
-      ARN of the AgentCore runtime to forward questions to. Passed at deploy
-      time (see backend/README.md) so no account id is committed.
+      NAME of the SSM parameter holding the AgentCore runtime ARN - not the ARN
+      itself. CloudFormation reads the parameter and hands the value to the
+      Lambdas, so no account id is ever committed or passed on a command line.
+
+      ⚠️ The Agent must be deployed first: it is what writes this parameter
+      (Agent/buildspec.yml). A missing parameter fails the deploy with
+      "Parameter /trg/... not found", which means exactly that.
+
+      ⚠️ Cross-region ImportValue is not an option here. The AgentCore stack
+      does export the runtime ARN, but it lives in us-east-1 while this stack
+      is in Tokyo, and CloudFormation exports do not cross regions. SSM is read
+      through the API, so the region is just an argument.
 
   AgentRegion:
     Type: String
@@ -32,22 +43,31 @@ Parameters:
       Region of the AgentCore runtime. Not this stack's region: the runtime is
       pinned to us-east-1 by the web-search connector (docs/01 section 6).
 
-  AllowedIp:
-    Type: String
-    Default: ""
+  DailyQuota:
+    Type: Number
+    Default: "2000"
     Description: >
-      Source IP (CIDR) allowed to call the API while it has no auth of its own.
-      Passed at deploy time rather than committed - the address is not secret,
-      but it says where the developer is, and this repository is public.
+      Requests allowed per API key per day. ⚠️ This counts every call, not
+      every question: one question is a POST plus roughly ten GET polls while
+      the answer is generated (docs/01a). 2000/day is therefore on the order of
+      180 questions a day - far more than a rider asks, but low enough that a
+      leaked key cannot run up an unbounded Bedrock bill.
 
-      ⚠️ Development only. Leave it empty for production: a rider's phone moves
-      between networks constantly, so a pinned address would break the app.
-      Production is meant to be protected by API keys instead (docs/01 §8),
-      which are not built yet.
+  ThrottleRate:
+    Type: Number
+    Default: "5"
+    Description: >
+      Steady-state requests per second per API key. ⚠️ Must stay above the
+      app's polling rate: it polls once a second while waiting (App/src/app/
+      index.tsx POLL_STEPS), so a rate of 1 would throttle the rider's own
+      question.
 
-Conditions:
-  # An empty AllowedIp means "no restriction", which is what production wants.
-  RestrictByIp: !Not [!Equals [!Ref AllowedIp, ""]]
+  ThrottleBurst:
+    Type: Number
+    Default: "10"
+    Description: >
+      Requests allowed in a momentary spike per API key. Covers a question
+      being submitted while a previous poll is still in flight.
 
 Globals:
   Function:
@@ -63,30 +83,29 @@ Resources:
       Name: !Sub "apigw-trg-${Environment}-main"
       StageName: Prod
       # ⚠️ The only thing standing between this API and anyone who learns its
-      # URL. There is no auth yet, and every call spends money on Bedrock, so
-      # while developing the API answers one address and nothing else.
+      # URL - every call spends money on Bedrock. An IP allow-list used to do
+      # this job, but a rider's phone changes address constantly (that is the
+      # normal case, not the exception), so the key replaced it outright.
       #
-      # Both statements are needed. A lone Deny would leave nothing granting
-      # access in the first place, and every request would be rejected.
-      #
-      # Passing an empty AllowedIp removes the restriction entirely - see the
-      # parameter for why production has to do that.
+      # ApiKeyRequired here makes the key mandatory on EVERY method, including
+      # /health. Endpoints opt out individually rather than opting in, so a new
+      # endpoint is protected by default - forgetting to add auth cannot leave
+      # a hole.
       Auth:
-        ResourcePolicy:
-          CustomStatements: !If
-            - RestrictByIp
-            - - Effect: Allow
-                Principal: "*"
-                Action: execute-api:Invoke
-                Resource: execute-api:/*
-              - Effect: Deny
-                Principal: "*"
-                Action: execute-api:Invoke
-                Resource: execute-api:/*
-                Condition:
-                  NotIpAddress:
-                    aws:SourceIp: [!Ref AllowedIp]
-            - !Ref AWS::NoValue
+        ApiKeyRequired: true
+        UsagePlan:
+          # SAM builds the usage plan, key, and the links between them.
+          CreateUsagePlan: PER_API
+          UsagePlanName: !Sub "usageplan-trg-${Environment}-main"
+          Description: >
+            Per-key limits. Sized for one rider polling for answers, not for
+            the number of questions asked - see the DailyQuota parameter.
+          Quota:
+            Limit: !Ref DailyQuota
+            Period: DAY
+          Throttle:
+            RateLimit: !Ref ThrottleRate
+            BurstLimit: !Ref ThrottleBurst
 
   # Single table for the whole app - see docs/03_dynamodb_table.md for why one
   # table holds every entity type, and how pk/sk distinguish them.
@@ -178,7 +197,7 @@ Resources:
             RestApiId: !Ref RestApi
             Path: /ask
             Method: post
-            # NOTE: no auth yet. API-key auth + usage plan come in a later stage.
+            # Inherits ApiKeyRequired from the API's Auth block above.
 
   # Where the waiting actually happens. Invoked from the queue rather than API
   # Gateway, so the agent's 10-25s no longer counts against the 29s ceiling.
@@ -252,8 +271,23 @@ Resources:
             RestApiId: !Ref RestApi
             Path: /health
             Method: get
+            # The one endpoint that opts out. A liveness check that needs a
+            # secret cannot be used to answer "is the API up, or is my key
+            # wrong?" - which is exactly what it is reached for. It touches no
+            # billable service and returns a constant, so leaving it open
+            # costs nothing.
+            Auth:
+              ApiKeyRequired: false
 
 Outputs:
   ApiBaseUrl:
     Description: "Base URL of the API (append /ask)"
     Value: !Sub "https://${RestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod"
+
+  ApiKeyId:
+    Description: >
+      Id of the generated API key. ⚠️ This is the id, NOT the key itself - the
+      value is deliberately not an output, because stack outputs are readable
+      by anyone with describe-stacks and end up in CI logs. Read the secret
+      with the command in Backend/README.md.
+    Value: !Ref RestApiApiKey

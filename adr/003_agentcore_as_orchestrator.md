@@ -63,8 +63,8 @@ AgentCore は**それ自体がエンドポイントを持つ**ため、アプリ
 ## 影響
 
 - **リージョンが分かれる。** Web検索コネクタが us-east-1 限定のため、
-  `touringAgent/` は us-east-1、`backend/` は東京になる（[docs/01](../docs/01_architecture.md) §6）。
-- **IaCが2つ並存する。** `agentcore` CLI が生成するのはCDKで、`backend/` はSAM。
+  `Agent/` は us-east-1、`Backend/` は東京になる（[docs/01](../docs/01_architecture.md) §6）。
+- **IaCが2つ並存する。** `agentcore` CLI が生成するのはCDKで、`Backend/` はSAM。
 - ⚠️ **アイドル中も課金される。** 文脈保持のため microVM が生存する。
   ツーリングは散発的な質問になるので、**コスト影響は要実測**。
 - **将来の拡張は `@tool` を足す形**で行える。メモ機能（US-X.01）を見据えた構造。

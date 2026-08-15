@@ -13,7 +13,8 @@ export interface paths {
         };
         /**
          * Health check
-         * @description Lightweight liveness/health check. No auth, no parameters. Useful for verifying the app <-> backend wiring and for monitoring, independent of the main /ask logic.
+         * @description Lightweight liveness/health check. No parameters.
+         *     ⚠️ The one endpoint that takes NO API key. A liveness check that needed a secret could not answer "is the API up, or is my key wrong?", which is what it gets reached for. It calls no billable service.
          */
         get: operations["health"];
         put?: never;
@@ -37,7 +38,7 @@ export interface paths {
          * Submit a question about the current location
          * @description Send a question together with the current location. The answer is NOT returned here: generating it takes 10-25s, which does not fit inside API Gateway's 29s ceiling once speech is added, so the question is queued and answered in the background.
          *     The response is 202 with a `requestId`. Poll GET /ask/{requestId} until its status is `done` or `error`.
-         *     Pass the same `sessionId` on later requests to continue the conversation (US-1.02). Voice (STT/TTS) and API-key auth come later.
+         *     Pass the same `sessionId` on later requests to continue the conversation (US-1.02). Voice (STT/TTS) comes later.
          */
         post: operations["ask"];
         delete?: never;
@@ -219,6 +220,27 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            /**
+             * @description The API key is missing or wrong.
+             *     ⚠️ API Gateway also returns 403 - not 404 - for a path that is not deployed, so this status does not prove the key is at fault. See Backend/README.md for telling the two apart.
+             */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The usage plan's limit was hit: either the daily quota or the per-second rate. The two are not distinguishable from the response. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description The question could not be accepted for processing. */
             502: {
                 headers: {
@@ -260,8 +282,29 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            /** @description The API key is missing or wrong (see POST /ask). */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description No such request. Also returned once the record has expired, an hour after it was created. */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /**
+             * @description The usage plan's limit was hit.
+             *     ⚠️ The app does NOT give up on this while polling - it polls once a second, so a brief brush with the rate limit is expected and the next attempt usually succeeds.
+             */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };

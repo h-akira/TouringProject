@@ -14,7 +14,7 @@
 | 認証 | **IAMのみ**（外部APIキー不要） |
 | 提供リージョン | **us-east-1 のみ**（2026-08時点） |
 
-**コネクタが us-east-1 限定なので、`touringAgent/` 全体を us-east-1 に置いている。**
+**コネクタが us-east-1 限定なので、`Agent/` 全体を us-east-1 に置いている。**
 Runtime と Gateway を同じリージョンに揃え、リージョンを跨がない構成にした。
 
 ```mermaid
@@ -30,7 +30,7 @@ flowchart LR
     A["アプリ"] --> R
 ```
 
-> ⚠️ **`backend/`（SAM）は `ap-northeast-1` のまま。** リージョンが用途で分かれている
+> ⚠️ **`Backend/`（SAM）は `ap-northeast-1` のまま。** リージョンが用途で分かれている
 > （[../../CLAUDE.md](../../CLAUDE.md) の「AWS / バックエンド開発」参照）。
 >
 > ⚠️ **モデルIDも `us.` 系になる。** `jp.anthropic.claude-sonnet-4-6` は ap-northeast 専用の

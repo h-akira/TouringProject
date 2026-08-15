@@ -83,7 +83,7 @@ addr["Locality"]        # 千代田区
 
 ## 3. どこに挟むか
 
-**Lambda（`backend/src/handlers/ask.py`）で座標→住所に変換し、住所をエージェントに渡す。**
+**Lambda（`Backend/src/handlers/ask.py`）で座標→住所に変換し、住所をエージェントに渡す。**
 
 ```
 アプリ（座標） → Lambda〔逆ジオコーディング〕→ エージェント（住所＋座標）
@@ -238,7 +238,7 @@ r = c.search_nearby(
 
 ## 6. 実装後の検証結果（2026-08-12）
 
-**修正が成立した。** `backend/src/handlers/geocode.py` を追加し、Lambdaが住所を解決して
+**修正が成立した。** `Backend/src/handlers/geocode.py` を追加し、Lambdaが住所を解決して
 「この住所は正確です。自分で座標から推測しないこと」と添えてエージェントに渡す形にした。
 
 | 検証 | 結果 |

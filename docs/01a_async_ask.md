@@ -121,7 +121,7 @@ flowchart TD
 | **時間の大小関係** | worker の Timeout(120秒) **＜** キューの可視性タイムアウト(180秒) |
 | **条件付き書き込み** | worker は `pending → processing` を `ConditionExpression` で行う。**2つ目は獲得に失敗し、AgentCoreを呼ばずに終わる** |
 
-実装は `backend/src/lib/store.py` の `claim()`。
+実装は `Backend/src/lib/store.py` の `claim()`。
 状態遷移は [03_dynamodb_table.md](03_dynamodb_table.md) §4。
 
 ### 守るべき順序

@@ -28,7 +28,7 @@ RUNTIME_ARN="${RUNTIME_ARN:-$(aws bedrock-agentcore-control list-agent-runtimes 
   --region "${REGION}" --query 'agentRuntimes[0].agentRuntimeArn' --output text 2>/dev/null)}"
 
 if [[ -z "${RUNTIME_ARN}" || "${RUNTIME_ARN}" == "None" ]]; then
-  echo "No agent runtime found in ${REGION}. Deploy first: cd touringAgent && agentcore deploy" >&2
+  echo "No agent runtime found in ${REGION}. Deploy first: cd Agent && agentcore deploy" >&2
   exit 1
 fi
 

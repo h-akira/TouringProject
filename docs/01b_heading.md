@@ -11,8 +11,8 @@
 （[01_architecture.md](01_architecture.md) §4.1）。方位は三角関数で確定するので、
 推測させる余地を残さない。
 
-- 計算: `backend/src/lib/geo.py`
-- プロンプトへの反映: `backend/src/handlers/ask.py`
+- 計算: `Backend/src/lib/geo.py`
+- プロンプトへの反映: `Backend/src/handlers/ask.py`
 
 ### ⚠️ 2点を読む向き
 

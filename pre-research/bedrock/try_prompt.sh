@@ -21,7 +21,7 @@ MAX_TOKENS="${MAX_TOKENS:-300}"
 
 QUESTION="${1:-右手に見える山は何ですか？}"
 
-# Keep this in sync with backend/src/lib/bedrock.py `_SYSTEM_PROMPT`.
+# Keep this in sync with Backend/src/lib/bedrock.py `_SYSTEM_PROMPT`.
 SYSTEM_PROMPT='あなたはバイクでツーリング中のライダーを支援するAIです。
 回答は音声で読み上げられ、ライダーは走行中で画面を見られません。
 
@@ -32,7 +32,7 @@ SYSTEM_PROMPT='あなたはバイクでツーリング中のライダーを支�
 - 確実でないことは「たぶん」「〜と思われます」と正直に伝える。
 - 走行の妨げになる長い説明はしない。'
 
-# Mirrors build_context_prompt() in backend/src/lib/bedrock.py.
+# Mirrors build_context_prompt() in Backend/src/lib/bedrock.py.
 USER_PROMPT="質問: ${QUESTION}
 現在の進行方向: 北北東（方位角 22度）
 ライダーから見て右手は東南東、左手は西北西の方角です。

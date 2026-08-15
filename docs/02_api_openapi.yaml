@@ -21,15 +21,22 @@ servers:
       region:
         default: ap-northeast-1
 
+# Every endpoint requires the API key unless it overrides this; /health does.
+security:
+  - ApiKeyAuth: []
+
 paths:
   /health:
     get:
       operationId: health
       summary: Health check
       description: >
-        Lightweight liveness/health check. No auth, no parameters. Useful for
-        verifying the app <-> backend wiring and for monitoring, independent of
-        the main /ask logic.
+        Lightweight liveness/health check. No parameters.
+
+        ⚠️ The one endpoint that takes NO API key. A liveness check that needed
+        a secret could not answer "is the API up, or is my key wrong?", which
+        is what it gets reached for. It calls no billable service.
+      security: []
       responses:
         "200":
           description: Service is healthy
@@ -52,7 +59,7 @@ paths:
         its status is `done` or `error`.
 
         Pass the same `sessionId` on later requests to continue the
-        conversation (US-1.02). Voice (STT/TTS) and API-key auth come later.
+        conversation (US-1.02). Voice (STT/TTS) comes later.
       requestBody:
         required: true
         content:
@@ -73,6 +80,25 @@ paths:
             Invalid request: malformed body, missing/empty `question`, a
             question over the length limit, or a `sessionId` shorter than 33
             characters.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: >
+            The API key is missing or wrong.
+
+            ⚠️ API Gateway also returns 403 - not 404 - for a path that is not
+            deployed, so this status does not prove the key is at fault. See
+            Backend/README.md for telling the two apart.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: >
+            The usage plan's limit was hit: either the daily quota or the
+            per-second rate. The two are not distinguishable from the response.
           content:
             application/json:
               schema:
@@ -118,10 +144,27 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: The API key is missing or wrong (see POST /ask).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "404":
           description: >
             No such request. Also returned once the record has expired, an
             hour after it was created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: >
+            The usage plan's limit was hit.
+
+            ⚠️ The app does NOT give up on this while polling - it polls once a
+            second, so a brief brush with the rate limit is expected and the
+            next attempt usually succeeds.
           content:
             application/json:
               schema:
@@ -134,6 +177,22 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
 
 components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      # ⚠️ API Gateway が読むヘッダ名は `x-api-key` 固定で、変更できない。
+      name: x-api-key
+      description: >
+        Per-device API key, issued when the stack is deployed and typed into
+        the app's settings screen (docs/01_architecture.md section 8). It is
+        stored with expo-secure-store, never in the bundle: EXPO_PUBLIC_ vars
+        are embedded in plain text, so they cannot hold a secret.
+
+        A usage plan caps requests per key, per day and per second. Note that
+        polling counts against it too - one question is a POST plus roughly ten
+        GETs.
+
   schemas:
     Coordinates:
       type: object

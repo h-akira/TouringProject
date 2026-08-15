@@ -1,0 +1,101 @@
+version: 0.2
+
+# Deploys the whole backend: Agent first, then Backend.
+#
+# ⚠️ Lives at the REPOSITORY ROOT, which is where CodeBuild looks by default.
+# The CloudFormation that creates the build project is in CICD/, but this file
+# is not - if Agent/ and Backend/ are ever split into their own repositories,
+# each one's buildspec is already where it needs to be.
+#
+# ⚠️ ONE CodeBuild runs both units, and the order is not arbitrary:
+# the Agent publishes its runtime ARN to SSM, and the Backend's SAM template
+# reads that parameter. Reversing them fails the first-ever deploy.
+#
+# Splitting these into two projects later is expected (they are separate units
+# with separate regions). What makes that possible is that the handoff already
+# goes through SSM rather than a shell variable - the split is then just a
+# question of running Backend after Agent, not a redesign.
+#
+# App/ is deliberately absent: it ships through Expo, not AWS.
+
+env:
+  variables:
+    AGENT_REGION: "us-east-1"
+    BACKEND_REGION: "ap-northeast-1"
+
+phases:
+  install:
+    runtime-versions:
+      python: 3.13
+      nodejs: 20
+    commands:
+      - npm install -g aws-cdk @aws/agentcore-cli
+      - pip install uv
+
+  pre_build:
+    commands:
+      # ⚠️ Both test suites run BEFORE anything is deployed. A red test should
+      # stop the release, not be discovered after the agent is already live.
+      - echo "--- Backend tests ---"
+      - (cd Backend && python3 -m pytest tests/ -q)
+
+  build:
+    commands:
+      # ---------- 1. Agent (us-east-1) ----------
+      # aws-targets.json holds the account id and is gitignored, so CI writes
+      # it from the identity it already runs as.
+      - echo "--- Deploying Agent ---"
+      - ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+      - |
+        cat > Agent/agentcore/aws-targets.json <<EOF
+        [
+          {
+            "name": "default",
+            "account": "${ACCOUNT_ID}",
+            "region": "${AGENT_REGION}"
+          }
+        ]
+        EOF
+      - (cd Agent && AWS_REGION=${AGENT_REGION} agentcore deploy -y)
+
+      # ---------- 2. Publish the runtime ARN ----------
+      # ⚠️ Written in TOKYO, because that is where the SAM stack reads it.
+      # A CloudFormation export cannot be used: the AgentCore stack exports the
+      # ARN in us-east-1, and ImportValue does not cross regions.
+      - |
+        AGENT_ARN=$(aws bedrock-agentcore-control list-agent-runtimes \
+          --region ${AGENT_REGION} \
+          --query 'agentRuntimes[0].agentRuntimeArn' --output text)
+        if [ -z "$AGENT_ARN" ] || [ "$AGENT_ARN" = "None" ]; then
+          echo "No agent runtime found after deploy - refusing to publish an empty ARN." >&2
+          exit 1
+        fi
+        aws ssm put-parameter \
+          --name "/trg/${ENV}/agent-runtime-arn" \
+          --value "$AGENT_ARN" \
+          --type String --overwrite \
+          --region ${BACKEND_REGION}
+      # ⚠️ Never echo the ARN: it contains the AWS account id, and build logs
+      # are the easiest place to leak one.
+      - echo "Agent runtime ARN published to SSM."
+
+      # ---------- 3. Backend (Tokyo) ----------
+      - echo "--- Deploying Backend ---"
+      - |
+        cd Backend
+        sam build
+        sam deploy \
+          --stack-name stack-trg-${ENV}-main \
+          --no-confirm-changeset \
+          --no-fail-on-empty-changeset \
+          --resolve-s3 \
+          --parameter-overrides Environment=${ENV} AgentRuntimeArn=/trg/${ENV}/agent-runtime-arn \
+          --capabilities CAPABILITY_IAM \
+          --region ${BACKEND_REGION}
+
+  post_build:
+    commands:
+      # ⚠️ The API key's VALUE is never printed - it is the only thing standing
+      # between a Bedrock-billing endpoint and anyone who reads a build log.
+      # Retrieve it with the command in Backend/README.md.
+      - echo "Deploy complete (Agent + Backend)."

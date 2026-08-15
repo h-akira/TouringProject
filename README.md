@@ -17,9 +17,10 @@
 
 | ディレクトリ | 中身 |
 |---|---|
-| [`app/`](app/) | React Native (Expo) アプリ本体 |
-| [`backend/`](backend/) | AWSバックエンド（SAM, Python）。API Gateway + Lambda + SQS + DynamoDB |
-| [`touringAgent/`](touringAgent/) | AgentCoreのエージェント本体（Strands）。会話の継続とWeb検索を担う |
+| [`App/`](App/) | React Native (Expo) アプリ本体 |
+| [`Backend/`](Backend/) | AWSバックエンド（SAM, Python）。API Gateway + Lambda + SQS + DynamoDB |
+| [`Agent/`](Agent/) | AgentCoreのエージェント本体（Strands）。会話の継続とWeb検索を担う |
+| [`CICD/`](CICD/) | 自動デプロイ（CodeBuild）。手順は [`buildspec.yml`](buildspec.yml) |
 | [`docs/`](docs/) | **現在の設計。** 要件定義・アーキテクチャ・API仕様 |
 | [`adr/`](adr/) | **決定の記録。** なぜそう決めたか、何を却下したか |
 | [`pre-research/`](pre-research/) | **技術検証。** 実測値と検証スクリプト |
@@ -54,6 +55,7 @@ flowchart LR
 | AI | Amazon Bedrock AgentCore（会話継続・Web検索） |
 | STT / TTS | Amazon Transcribe / Polly |
 | 対象OS | Android |
+| CI/CD | AWS CodeBuild（pushで Agent → Backend を自動デプロイ） |
 
 詳細と選定理由は [docs/01_architecture.md](docs/01_architecture.md)、
 検討の経緯は [pre-research/02_tech_selection.md](pre-research/02_tech_selection.md)。
@@ -87,6 +89,8 @@ flowchart LR
 
 | # | 決定 | 日付 |
 |---|---|---|
+| [005](adr/005_cicd_and_layout.md) | CI/CDを入れ、トップレベルのディレクトリ名を揃える | 2026-08-15 |
+| [004](adr/004_api_key_auth.md) | APIの保護をIP制限からAPIキーに替える | 2026-08-15 |
 | [001](adr/001_async_ask.md) | 回答の受け取りを非同期にする | 2026-08-13 |
 | [002](adr/002_speech_on_device.md) | 音声はアプリ側で扱う（Nova 2 Sonic は日本語非対応） | 2026-08-12 |
 | [003](adr/003_agentcore_as_orchestrator.md) | 会話の司令塔を AgentCore にする（Lexは使わない） | 2026-07-30 |

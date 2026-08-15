@@ -90,4 +90,4 @@ echo "${GREEN}Usable (${#usable[@]}):${RESET}"
 printf '  %s\n' "${usable[@]}"
 echo
 echo "${DIM}Current backend default: jp.anthropic.claude-sonnet-4-6${RESET}"
-echo "${DIM}Override via the BEDROCK_MODEL_ID env var (see backend/template.yaml).${RESET}"
+echo "${DIM}Override via the BEDROCK_MODEL_ID env var (see Backend/template.yaml).${RESET}"

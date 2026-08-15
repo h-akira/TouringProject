@@ -16,7 +16,7 @@
 #   ENDPOINT=http://localhost:8080 ./try_session.sh
 #
 # Start the agent first (see pre-research/agentcore/README.md):
-#   cd touringAgent/app/agentcore_trg_dev_ask
+#   cd Agent/app/agentcore_trg_dev_ask
 #   eval "$(AWS_PROFILE=touring aws configure export-credentials --format env)"
 #   AWS_DEFAULT_REGION=ap-northeast-1 .venv/bin/python main.py
 
