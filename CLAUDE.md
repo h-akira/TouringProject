@@ -132,7 +132,11 @@ grep -rnE '\b[0-9]{12}\b|\b(o-[a-z0-9]{10,}|r-[a-z0-9]{4,}|p-[a-z0-9]{8,})\b|AKI
 - **`docs/02_api_openapi.yaml` が正本**（フロント↔バックの契約）。
   API Gatewayの `DefinitionBody` には未組込（契約・型生成・ドキュメント用途）。
 - ⚠️ **契約を変えたら型を再生成する**: `cd App && npm run gen:api`
-  → `App/src/api/schema.ts`（**生成物もコミット対象**）。エイリアスは `src/api/types.ts`。
+  → `App/src/api/schema.ts`。エイリアスは `src/api/types.ts`。
+- ⚠️ **`schema.ts` は生成物なので追跡しない**（`.gitignore` 済み）。
+  **手で編集しない。** 直すのは正本の `docs/02_api_openapi.yaml` 側。
+- 📌 **生成は `npm` の `postinstall` / `prestart` で自動的に走る**（`App/package.json`）。
+  無いと `tsc` が通らないため、**忘れても困らないようにしてある**。
 
 ## 📌 `.memory/` — セッションを越えて残す記憶
 

@@ -4,6 +4,11 @@ dist/
 build/
 *.tsbuildinfo
 
+# OpenAPI から生成する型。正本は docs/02_api_openapi.yaml。
+# ⚠️ 生成を忘れると tsc が通らないので、npm の postinstall / prestart で
+# 自動生成するようにしてある（App/package.json）。手で叩くなら `npm run gen:api`。
+App/src/api/schema.ts
+
 # === Expo / React Native（app/ 配下は app/.gitignore も参照）===
 .expo/
 web-build/

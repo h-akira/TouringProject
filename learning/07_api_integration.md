@@ -120,6 +120,27 @@ npm run gen:api
 - 使いやすいよう `src/api/types.ts` でエイリアスを切ってある（`AskRequest`, `AskResponse` 等）。
 - **契約（docs/02）を変えたら `npm run gen:api` で型を再生成**する。
 
+### ⚠️ 生成物はgitで管理しない
+
+`schema.ts` は `.gitignore` に入れてある。**生成できるものをリポジトリに置かない**という一般則に従う。
+
+ただし、**除外するなら「無くても復旧できる」ことを担保しないといけない**。
+この型が無いと `tsc` が
+`Cannot find module './schema'` で落ちるので、生成を人の記憶に頼らせない:
+
+```json
+// App/package.json
+"postinstall": "npm run gen:api",   // clone直後の npm install で生成される
+"prestart":    "npm run gen:api",   // expo start の前に必ず最新化される
+```
+
+📌 **`postinstall` だけでは足りない。** インストール後に `docs/02` を書き換えると
+型が古いままになるため、`prestart` でも生成し直している。
+
+> **どちらの判断もありうる。** 「生成物も追跡して差分で契約の変化を見る」という運用もあり、
+> このプロジェクトは当初そうしていた。⚠️ **追跡しないなら再生成の自動化が必須**、
+> **追跡するなら再生成忘れの検出が必須**で、**どちらにせよ仕組みが要る**のが要点。
+
 ### コードでの使い方
 
 ```tsx
