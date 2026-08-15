@@ -89,7 +89,7 @@ flowchart LR
 
 | # | 決定 | 日付 |
 |---|---|---|
-| [005](adr/005_cicd_and_layout.md) | CI/CDを入れ、トップレベルのディレクトリ名を揃える | 2026-08-15 |
+| [005](adr/005_cross_stack_handoff.md) | スタック間の受け渡しをSSMにし、パイプラインは暫定で1本にする | 2026-08-15 |
 | [004](adr/004_api_key_auth.md) | APIの保護をIP制限からAPIキーに替える | 2026-08-15 |
 | [001](adr/001_async_ask.md) | 回答の受け取りを非同期にする | 2026-08-13 |
 | [002](adr/002_speech_on_device.md) | 音声はアプリ側で扱う（Nova 2 Sonic は日本語非対応） | 2026-08-12 |
