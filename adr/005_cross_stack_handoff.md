@@ -82,6 +82,7 @@ Backendは**東京**で、**`Fn::ImportValue` はリージョンを跨げない*
   （`Parameter /trg/... not found`）。これは仕様どおりの挙動。
 - **`sam deploy` が引数なしで通るようになった。**
   渡すのは**SSMパラメータ名**でアカウントIDを含まないため、`samconfig.toml` に置ける。
+  📌 手元では changeset の確認プロンプトが出る（CIは `--no-confirm-changeset`）。
 - ⚠️ **`--parameter-overrides` はsamconfigの指定を「併合せず置き換える」**（実測で確認）。
   一部だけ変えるつもりで省くと、テンプレートの既定値に戻る。
 - **CodeBuildのIAMロールは広め。** SAMとCDKが2スタックぶんのリソースを作るため。

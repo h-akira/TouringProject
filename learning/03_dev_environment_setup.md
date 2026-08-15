@@ -190,5 +190,5 @@ SDKをダウングレードすると、`package.json` の依存を合わせて�
 ## 参考
 
 - [Expo 公式ドキュメント](https://docs.expo.dev/)
-- [Create your first app · Expo](https://docs.expo.dev/tutorial/create-your-first-App/)
+- [Create your first app · Expo](https://docs.expo.dev/tutorial/create-your-first-app/)
 - [Expo App Stuck on Splash Screen | Fix (HeyVish)](https://heyvish.com/blog/expo-go-app-stuck-on-splash-screen)

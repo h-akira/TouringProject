@@ -25,6 +25,12 @@ CODESTAR_CONNECTION_ARN="arn:aws:codeconnections:ap-northeast-1:<ACCOUNT_ID>:con
 # One topic shared across environments.
 NOTICE_ENV=common
 
+# ⚠️ Set the profile BEFORE the first AWS call, not just before the deploys.
+# Another profile may point at a different account (the organisation's management account), and
+# one of the checks below WRITES (import-source-credentials) - running it
+# against the wrong account is not a read-only mistake.
+export AWS_PROFILE=touring
+
 # ⚠️ Fail early if the connection is not usable. A connection left PENDING
 # produces a stack that cannot fetch the source, and the failure only surfaces
 # later as an unhelpful build error.
@@ -53,11 +59,6 @@ if ! aws codebuild list-source-credentials --region "${REGION}" \
     --token "${CODESTAR_CONNECTION_ARN}" \
     --region "${REGION}" >/dev/null
 fi
-
-# ⚠️ Use the right profile. Another profile may point at a different account (the organisation's
-# management account); pointing at it produces AccessDenied errors, or worse,
-# resources created in the wrong place.
-export AWS_PROFILE=touring
 
 # 1. Notification topic. Deploy first: build.yaml imports its export.
 aws cloudformation deploy \

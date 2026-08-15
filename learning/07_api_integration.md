@@ -70,7 +70,7 @@ const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL;
 - `EXPO_PUBLIC_` 変数は、**ビルド後のアプリに平文で埋め込まれる**（誰でも取り出せる）。
 - よって **入れてよいのは秘密でない値だけ**。エンドポイントURLは秘密ではないのでOK。
 - **APIキーやトークンは入れてはいけない。** それらは端末の安全な保管領域（`expo-secure-store` = OSのKeychain/Keystore）に入れ、
-  アプリの設定画面から入力する設計にする（→ [docs/01 §6](../docs/01_architecture.md)）。
+  アプリの設定画面から入力する設計にする（→ [docs/01 §8](../docs/01_architecture.md)）。
 
 ### gitの扱い
 

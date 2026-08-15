@@ -127,6 +127,10 @@ sam build
 sam deploy
 ```
 
+📌 **変更内容（changeset）が表示され、`y` の入力を求められる。**
+手で流すときは**何が変わるか見てから進む**方が安全なので、そのままにしてある
+（`samconfig.toml` の `confirm_changeset`）。⚠️ **CI では `--no-confirm-changeset` で自動化している**。
+
 ⚠️ **`AgentRuntimeArn` に渡しているのはARNではなく、SSMパラメータの「名前」**
 （`/trg/dev/agent-runtime-arn`）。CloudFormationがそれを解決して値を取るので、
 **名前にアカウントIDは含まれず** `samconfig.toml` にコミットできる。

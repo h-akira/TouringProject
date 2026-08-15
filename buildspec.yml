@@ -80,12 +80,20 @@ phases:
       # ⚠️ Written in TOKYO, because that is where the SAM stack reads it.
       # A CloudFormation export cannot be used: the AgentCore stack exports the
       # ARN in us-east-1, and ImportValue does not cross regions.
+      # ⚠️ Selected BY NAME, not agentRuntimes[0]. The list has no guaranteed
+      # order, so an index silently picks the wrong runtime the day a second
+      # one exists - and the Backend would then be wired to it without any
+      # error. The name is derived from agentcore.json (<project>_<runtime>),
+      # so it cannot drift from what was just deployed.
       - |
+        RUNTIME_NAME=$(python3 -c "import json; d=json.load(open('Agent/agentcore/agentcore.json')); print(f\"{d['name']}_{d['runtimes'][0]['name']}\")")
+        echo "Looking up runtime: ${RUNTIME_NAME}"
         AGENT_ARN=$(aws bedrock-agentcore-control list-agent-runtimes \
           --region ${AGENT_REGION} \
-          --query 'agentRuntimes[0].agentRuntimeArn' --output text)
+          --query "agentRuntimes[?agentRuntimeName=='${RUNTIME_NAME}'].agentRuntimeArn | [0]" \
+          --output text)
         if [ -z "$AGENT_ARN" ] || [ "$AGENT_ARN" = "None" ]; then
-          echo "No agent runtime found after deploy - refusing to publish an empty ARN." >&2
+          echo "Runtime ${RUNTIME_NAME} not found after deploy - refusing to publish an empty ARN." >&2
           exit 1
         fi
         aws ssm put-parameter \
