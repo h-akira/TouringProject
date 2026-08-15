@@ -246,16 +246,21 @@ Resources:
                 Pattern: PUSH
               - Type: HEAD_REF
                 Pattern: !Sub "^refs/heads/${GitHubBranch}$"
-              # ⚠️ Documentation-only pushes must not redeploy. This repo is
-              # half documentation, so without this filter most builds would
-              # deploy nothing and still bill for the run.
+              # ⚠️ There is deliberately NO FILE_PATH filter. Every push to the
+              # branch deploys.
               #
-              # ⚠️ buildspec.yml is listed separately because it sits at the
-              # repository ROOT, so no directory prefix matches it. Leaving it
-              # out means a change to the deploy procedure itself would not
-              # deploy - the one omission nobody would think to check.
-              - Type: FILE_PATH
-                Pattern: "^(Agent/|Backend/|CICD/|buildspec\\.yml$)"
+              # A path filter looks like an easy way to skip documentation-only
+              # pushes, but CodeBuild evaluates FILE_PATH against the push's
+              # HEAD COMMIT alone. So a push whose last commit happens to touch
+              # only docs is skipped entirely - taking any Backend or Agent
+              # change earlier in the same push down with it, silently, with a
+              # webhook delivery that reports 200 OK. Verified against a real
+              # payload: a 12-commit push was skipped because its head commit
+              # touched 6 documentation files.
+              #
+              # A build with nothing to deploy is cheap: CloudFormation and SAM
+              # both no-op on an unchanged template. A deploy that silently does
+              # not happen is not.
           - !Ref AWS::NoValue
       # The agent's CDK deploy is the slow part; 30 minutes is ample.
       TimeoutInMinutes: 30

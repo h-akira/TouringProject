@@ -79,7 +79,9 @@
   BackendのSAMがそれを読む。**リージョンが違うのでCFnのエクスポートは使えない。**
 - ⚠️ **手順書は `buildspec.yml`（リポジトリ直下）。** `CICD/` にあるのは
   CodeBuild自体を作るCloudFormation。
-- ⚠️ **ドキュメントだけの変更ではビルドしない**（パスフィルタ `^(Agent/|Backend/|CICD/|buildspec\.yml$)`）。
+- ⚠️ **`main` へのpushは常にビルドする。** パスフィルタは**使わない**:
+  `FILE_PATH` は**headコミットしか見ない**ので、最後のコミットがドキュメントだけだと
+  **同じpushのBackend変更ごと静かにスキップされる**（`CICD/README.md`）。
 
 ## ⚠️ 公開リポジトリの鉄則（最重要）
 
