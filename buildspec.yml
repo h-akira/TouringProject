@@ -22,6 +22,13 @@ env:
   variables:
     AGENT_REGION: "us-east-1"
     BACKEND_REGION: "ap-northeast-1"
+    # ⚠️ Pinned, not "latest". The agent is deployed by whatever version of
+    # this CLI the build installs, so an unpinned install would silently move
+    # CI onto a release nobody has run locally - and the CLI owns the CDK
+    # code it generates. Bump this deliberately, after trying it by hand.
+    #
+    # The package is `@aws/agentcore`; it provides the `agentcore` binary.
+    AGENTCORE_CLI_VERSION: "0.24.2"
 
 phases:
   install:
@@ -29,8 +36,10 @@ phases:
       python: 3.13
       nodejs: 20
     commands:
-      - npm install -g aws-cdk @aws/agentcore-cli
+      - npm install -g aws-cdk "@aws/agentcore@${AGENTCORE_CLI_VERSION}"
       - pip install uv
+      # Fail here rather than deep inside the deploy if the CLI is not usable.
+      - agentcore --version
 
   pre_build:
     commands:
