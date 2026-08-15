@@ -26,6 +26,29 @@
 | [`pre-research/`](pre-research/) | **技術検証。** 実測値と検証スクリプト |
 | [`learning/`](learning/) | **学習教材。** 使った技術の基礎を、既存のWeb知識と対応づけて書いたメモ |
 
+## 動かす
+
+**アプリは実機Android + Expo Go**、バックエンドはAWSにデプロイして使う。
+
+```sh
+cd App
+npm install            # API の型は postinstall で自動生成される
+cp .env.example .env   # APIのURLを書く（⚠️ APIキーはここに書かない）
+npx expo start         # QRコードをスマホの Expo Go で読む
+```
+
+**APIキーはアプリの設定画面から入れる**（`expo-secure-store` に保管）。
+→ **手順の詳細は [App/README.md](App/README.md)**（キーの取得方法・つまずいたとき）。
+
+| やりたいこと | 見るところ |
+|---|---|
+| アプリを動かす | [App/README.md](App/README.md) |
+| バックエンドをデプロイ / APIキーを取り出す | [Backend/README.md](Backend/README.md) |
+| 自動デプロイ（push → CodeBuild） | [CICD/README.md](CICD/README.md) |
+
+> 📌 **通常はデプロイを手で叩かなくてよい。** `main` にpushすると
+> CodeBuild が Agent → Backend の順に自動デプロイする。
+
 ### ドキュメントの使い分け
 
 同じ話題が複数の場所に出てくることがあるが、**役割が違う**。
