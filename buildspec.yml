@@ -43,8 +43,17 @@ phases:
 
   pre_build:
     commands:
-      # ⚠️ Both test suites run BEFORE anything is deployed. A red test should
-      # stop the release, not be discovered after the agent is already live.
+      # ⚠️ pytest is not present in the build image. It is only a test
+      # dependency, so it lives in requirements-dev.txt rather than being
+      # installed with the Lambda's code (the handlers import nothing beyond
+      # the standard library and boto3, which the runtime already provides).
+      - pip install -r Backend/requirements-dev.txt
+      # ⚠️ Tests run BEFORE anything is deployed. A red test should stop the
+      # release, not be discovered after the agent is already live.
+      #
+      # ⚠️ The cd is inside a subshell on purpose. CodeBuild runs every command
+      # in the SAME shell, so a bare `cd` persists into the following commands
+      # and silently changes where they run.
       - echo "--- Backend tests ---"
       - (cd Backend && python3 -m pytest tests/ -q)
 
@@ -90,17 +99,23 @@ phases:
 
       # ---------- 3. Backend (Tokyo) ----------
       - echo "--- Deploying Backend ---"
+      # ⚠️ Wrapped in a subshell like the others. This happens to be the last
+      # command today, so a bare `cd` would not break anything yet - which is
+      # exactly how the next command added below it ends up running in the
+      # wrong directory.
       - |
-        cd Backend
-        sam build
-        sam deploy \
-          --stack-name stack-trg-${ENV}-main \
-          --no-confirm-changeset \
-          --no-fail-on-empty-changeset \
-          --resolve-s3 \
-          --parameter-overrides Environment=${ENV} AgentRuntimeArn=/trg/${ENV}/agent-runtime-arn \
-          --capabilities CAPABILITY_IAM \
-          --region ${BACKEND_REGION}
+        (
+          cd Backend
+          sam build
+          sam deploy \
+            --stack-name stack-trg-${ENV}-main \
+            --no-confirm-changeset \
+            --no-fail-on-empty-changeset \
+            --resolve-s3 \
+            --parameter-overrides Environment=${ENV} AgentRuntimeArn=/trg/${ENV}/agent-runtime-arn \
+            --capabilities CAPABILITY_IAM \
+            --region ${BACKEND_REGION}
+        )
 
   post_build:
     commands:

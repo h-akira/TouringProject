@@ -59,8 +59,14 @@ Nova 2 Sonic（音声→音声）は日本語非対応のため採用しなか�
 
 ```sh
 cd Backend
+pip install -r requirements-dev.txt   # 初回だけ
 python3 -m pytest tests/ -q
 ```
+
+⚠️ **`requirements-dev.txt` はテスト専用**で、Lambdaには入らない。
+ハンドラは標準ライブラリと `boto3` しか使っておらず、**`boto3` はLambdaランタイムが持っている**ため
+デプロイ時にインストールするものは無い。
+⚠️ **ただしテストを動かす側には必要**（`tests/test_store.py` が `botocore` を直接importする）。
 
 > API仕様（OpenAPI）は**フロント↔バックの契約**なので `docs/02_api_openapi.yaml` に置いている。
 > 現時点では契約・ドキュメント・型生成の源として持ち、API Gateway の `DefinitionBody` には
