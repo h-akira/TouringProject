@@ -63,6 +63,7 @@ def ask_audio(monkeypatch):
     """Import the handler with the bucket and queue configured."""
     monkeypatch.setenv("QUEUE_URL", "https://sqs.example/queue")
     monkeypatch.setenv("AUDIO_BUCKET", "bucket-test")
+    monkeypatch.setenv("TRANSCRIBE_ROLE_ARN", "arn:aws:iam::000000000000:role/test")
     module = importlib.import_module("handlers.ask_audio")
     importlib.reload(module)
     return module
@@ -261,3 +262,26 @@ def test_missing_configuration_does_not_pretend_to_work(ask_audio, monkeypatch):
 
     result = module.handler(_event(), None)
     assert result["statusCode"] == 502
+
+
+def test_transcribe_is_given_the_role_it_writes_with(ask_audio):
+    # ⚠️ Transcribe writes the transcript after this function has returned, so
+    # it cannot use the Lambda's credentials. Without the role the job runs and
+    # then fails at the last step, having already been billed.
+    capture: dict = {}
+    _call(ask_audio, capture=capture)
+
+    settings = capture["job"]["JobExecutionSettings"]
+    assert settings["DataAccessRoleArn"] == ask_audio.TRANSCRIBE_ROLE_ARN
+
+
+def test_the_transcript_is_written_to_our_own_bucket(ask_audio):
+    # Not the service-managed bucket: the transcript is the rider speaking, and
+    # there it could be neither expired by our lifecycle rule nor deleted
+    # without a support case.
+    capture: dict = {}
+    result = _call(ask_audio, capture=capture)
+
+    request_id = json.loads(result["body"])["requestId"]
+    assert capture["job"]["OutputBucketName"] == "bucket-test"
+    assert capture["job"]["OutputKey"] == f"transcripts/{request_id}.json"

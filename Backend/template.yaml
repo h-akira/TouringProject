@@ -156,6 +156,50 @@ Resources:
             AbortIncompleteMultipartUpload:
               DaysAfterInitiation: 1
 
+  # ⚠️ Transcribe writes the transcript itself, after the Lambda that started
+  # the job has already returned - its credentials are long gone by then, so
+  # the service needs a role of its own to reach the bucket.
+  #
+  # The alternative is to omit OutputBucketName and let the transcript land in
+  # a service-managed bucket. That is rejected deliberately: the transcript is
+  # the rider speaking, and in AWS's bucket it cannot be deleted except by
+  # raising a support case, nor covered by the lifecycle rule below.
+  TranscribeRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "role-trg-${Environment}-transcribe"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: transcribe.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              # Confused-deputy guard: without it, any account able to name
+              # this role in a job could have Transcribe write into it.
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+              ArnLike:
+                aws:SourceArn: !Sub "arn:aws:transcribe:${AWS::Region}:${AWS::AccountId}:*"
+      Policies:
+        - PolicyName: ReadAudioWriteTranscript
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              # Reading the recording it was asked to transcribe...
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:ListBucket
+                Resource:
+                  - !GetAtt AudioBucket.Arn
+                  - !Sub "${AudioBucket.Arn}/audio/*"
+              # ...and writing the transcript back beside it.
+              - Effect: Allow
+                Action: s3:PutObject
+                Resource: !Sub "${AudioBucket.Arn}/transcripts/*"
+
   # Single table for the whole app - see docs/03_dynamodb_table.md for why one
   # table holds every entity type, and how pk/sk distinguish them.
   #
@@ -266,6 +310,7 @@ Resources:
           TABLE_NAME: !Ref MainTable
           QUEUE_URL: !Ref AskQueue
           AUDIO_BUCKET: !Ref AudioBucket
+          TRANSCRIBE_ROLE_ARN: !GetAtt TranscribeRole.Arn
       Policies:
         - S3WritePolicy:
             BucketName: !Ref AudioBucket
@@ -276,6 +321,14 @@ Resources:
               Action: transcribe:StartTranscriptionJob
               # Transcribe jobs have no ARN to scope to before they exist.
               Resource: "*"
+            # Handing Transcribe the role it writes the transcript with.
+            # Scoped to that one role, so this cannot pass anything else.
+            - Effect: Allow
+              Action: iam:PassRole
+              Resource: !GetAtt TranscribeRole.Arn
+              Condition:
+                StringEquals:
+                  iam:PassedToService: transcribe.amazonaws.com
       Events:
         AskAudio:
           Type: Api

@@ -45,6 +45,11 @@ MIN_SESSION_ID_CHARS = 33
 QUEUE_URL = os.environ.get("QUEUE_URL", "")
 AUDIO_BUCKET = os.environ.get("AUDIO_BUCKET", "")
 
+# ⚠️ Transcribe writes the transcript after this function has returned, so it
+# cannot borrow these credentials - it assumes this role instead. Without it
+# the job fails at the end, having already been paid for.
+TRANSCRIBE_ROLE_ARN = os.environ.get("TRANSCRIBE_ROLE_ARN", "")
+
 # Created once per container so warm invocations skip client setup.
 _s3 = boto3.client("s3")
 _transcribe = boto3.client("transcribe")
@@ -142,6 +147,9 @@ def _start_transcription(job_name: str, s3_uri: str) -> None:
         Media={"MediaFileUri": s3_uri},
         OutputBucketName=AUDIO_BUCKET,
         OutputKey=f"transcripts/{job_name}.json",
+        JobExecutionSettings={
+            "DataAccessRoleArn": TRANSCRIBE_ROLE_ARN,
+        },
     )
 
 
