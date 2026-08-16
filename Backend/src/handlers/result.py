@@ -20,6 +20,7 @@ from decimal import Decimal
 from typing import Any, Optional
 
 import boto3
+from botocore.config import Config
 
 from lib import store
 
@@ -39,7 +40,18 @@ AUDIO_URL_TTL_SECONDS = 300
 AUDIO_BUCKET = os.environ.get("AUDIO_BUCKET", "")
 
 # Created once per container so warm invocations skip client setup.
-_s3 = boto3.client("s3")
+#
+# ⚠️ The region is explicit, and so is the addressing style. Without them boto3
+# signs against the global endpoint (s3.amazonaws.com), and S3 answers the
+# fetch with a 307 to the regional host instead of the audio. curl -L survives
+# that; a media player asked to stream the URL may not, and the failure would
+# read as "the answer arrived but nothing plays" - measured against the real
+# API, not theorised.
+_s3 = boto3.client(
+    "s3",
+    region_name=os.environ.get("AWS_REGION", "ap-northeast-1"),
+    config=Config(s3={"addressing_style": "virtual"}, signature_version="s3v4"),
+)
 
 
 def _response(status: int, body: dict[str, Any]) -> dict[str, Any]:

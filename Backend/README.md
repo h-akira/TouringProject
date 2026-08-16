@@ -49,14 +49,45 @@ Backend/
 > 呼び出す AgentCore Runtime は **`us-east-1`**（Web検索コネクタがそこ限定のため）。
 > Lambdaは `AGENT_REGION` で明示的に us-east-1 を指す。
 
-### 音声はまだ入っていない
+### 音声（`POST /ask-audio`）
 
-音声の方式は**「手前でSTT」に決定済み**（[pre-research/voice/](../pre-research/voice/)）。
+**STT/TTS はこのスタックが担う。** アプリは録音した音声を送るだけで、
+**Lambdaが Transcribe（バッチ）と Polly を呼ぶ**（[docs/01](../docs/01_architecture.md) §7）。
+既存の `POST /ask`（テキスト）は変わらない。
+
+音声の方式は**「手前でSTT」**（[pre-research/voice/](../pre-research/voice/)）。
 Nova 2 Sonic（音声→音声）は日本語非対応のため採用しなかった。
 
-⚠️ **STT/TTS はこのスタックに入る。** アプリは録音した音声を **`POST /ask-audio`** に送り、
-**Lambdaが Transcribe（バッチ）を呼ぶ**（[docs/01](../docs/01_architecture.md) §7）。
-既存の `POST /ask`（テキスト）は変わらない。
+#### ⚠️ 疎通確認（アプリ無しで試す）
+
+**デプロイが通っても動く保証はない。** この経路の失敗は
+**デプロイ時ではなく実行時に出る**ので、一度は通しで確かめる。
+
+```sh
+# 録音（M4A）を用意する。pre-research/voice/recordings/ はWAVなので変換が要る
+ffmpeg -i input.wav -c:a aac -ar 16000 -ac 1 question.m4a
+
+curl -X POST "https://<api-id>.execute-api.ap-northeast-1.amazonaws.com/Prod/ask-audio" \
+  -H "x-api-key: <APIキー>" \
+  -F "audio=@question.m4a;type=audio/mp4" \
+  -F 'location={"start":{"latitude":35.681,"longitude":139.767}}'
+# → 202 と requestId が返る
+
+curl "https://<api-id>.execute-api.ap-northeast-1.amazonaws.com/Prod/ask/<requestId>" \
+  -H "x-api-key: <APIキー>"
+# → pending がしばらく続き、done になると answer と audioUrl が入る
+```
+
+⚠️ **`audioUrl` はAPIキー不要**（S3の署名付きURL・数分で失効）。そのまま `curl -o` で落とせる。
+
+**うまくいかないときに見る順**:
+
+| 症状 | 見るところ |
+|---|---|
+| 202が返らない | `lambda-trg-dev-ask-audio` のログ。⚠️ **413なら録音が長すぎる** |
+| `pending` のまま | ⚠️ **`transcripts/` が出ているか**をS3で確認 → 出ていなければ Transcribe のロール権限 |
+| `error` になる | `lambda-trg-dev-transcribe-done` のログ（無音・認識失敗もここ） |
+| `audioUrl` が無い | `lambda-trg-dev-worker` のログ（Pollyの失敗。⚠️ **回答自体は返る**） |
 
 ### テスト
 
@@ -159,6 +190,13 @@ AWS_PROFILE=touring aws ssm put-parameter \
 
 **このAPIはAPIキーが無いと叩けない**（`/health` を除く）。
 キーはスタックが**自動生成する**ので、デプロイ後に値を取り出してアプリに入れる。
+名前は `apikey-trg-<env>-main`。
+
+> 📌 **キーとUsage Planはテンプレートに明示的に書いている。** SAMに任せると
+> `stack--RestA-<ランダム>` のような名前になり、**SAMには名前を指定する術がない**ため。
+>
+> ⚠️ **キーの値が変わったら、アプリの設定画面で入れ直す。**
+> 値はAPI Gatewayが生成するので、キーを作り直せば別の値になる。
 
 ⚠️ **キーの値はスタックの Outputs に出していない。**
 Outputs は `describe-stacks` の権限があれば誰でも読めるうえ、CIのログにも残るため。

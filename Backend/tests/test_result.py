@@ -244,3 +244,28 @@ def test_timestamps_are_read_as_dynamodb_returns_them(result):
     )
 
     assert json.loads(response["body"])["status"] == "error"
+
+
+def test_the_signed_url_points_at_the_regional_endpoint(monkeypatch):
+    """⚠️ Caught by fetching a real URL, not by this suite.
+
+    boto3 signing against the global endpoint (s3.amazonaws.com) makes S3
+    answer with a 307 to the regional host rather than the audio. curl -L
+    survives it; a media player handed the URL may not, and the rider gets an
+    answer on screen with nothing to hear.
+
+    The fixture elsewhere stubs generate_presigned_url, so only a test that
+    lets the real signer run can see this.
+    """
+    monkeypatch.setenv("AUDIO_BUCKET", "bucket-test")
+    monkeypatch.setenv("AWS_REGION", "ap-northeast-1")
+    module = importlib.import_module("handlers.result")
+    importlib.reload(module)
+
+    url = module._audio_url("answers/req-1.mp3")
+
+    # Regional host, virtual-hosted style: no redirect on the way to the object.
+    assert "bucket-test.s3.ap-northeast-1.amazonaws.com" in url
+    assert "s3.amazonaws.com/bucket-test" not in url
+    # SigV4, not the legacy AWSAccessKeyId query form.
+    assert "X-Amz-Signature=" in url

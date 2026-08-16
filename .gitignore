@@ -69,3 +69,9 @@ deploy-sam.sh
 # CICD/deploy-sample.sh をコピーして作るもの。CodeStar接続ARN（＝アカウントID）を含む。
 # 雛形の deploy-sample.sh は追跡する。
 CICD/deploy.sh
+
+# === 疎通確認に使う音声（Backend/README.md）===
+# ⚠️ 録音には話し手の声が入り、回答音声には現在地が出てくることがある。
+# 手元で試すためだけのものなので追跡しない。
+*.m4a
+*.mp3
