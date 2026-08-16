@@ -26,11 +26,20 @@ def ask(monkeypatch):
     Reverse-geocoding is stubbed out by default so these tests neither need
     credentials nor depend on Amazon Location's answers; the tests that care
     about the address override it.
+
+    ⚠️ The stub goes on lib.prompt, which is what actually calls it - patching
+    the handler would leave the real Amazon Location call in place and these
+    tests would quietly start needing credentials.
     """
     monkeypatch.setenv("QUEUE_URL", "https://sqs.example/queue")
+    prompt_module = importlib.import_module("lib.prompt")
+    importlib.reload(prompt_module)
+    prompt_module.describe_location = lambda _lat, _lon: None
     module = importlib.import_module("handlers.ask")
     importlib.reload(module)
-    module.describe_location = lambda _lat, _lon: None
+    # The address stub lives on lib.prompt; a test that wants a specific
+    # address sets it there, via this alias.
+    module.prompt_builder = prompt_module
     return module
 
 
@@ -123,7 +132,7 @@ def test_location_is_prepended_to_the_prompt(ask):
 def test_resolved_address_is_stated_as_fact(ask):
     # The model places coordinates unreliably, so the address is given to it
     # along with an instruction not to second-guess the numbers.
-    ask.describe_location = lambda _lat, _lon: "神奈川県箱根町"
+    ask.prompt_builder.describe_location = lambda _lat, _lon: "神奈川県箱根町"
     capture: dict = {}
     _call(
         ask,
@@ -138,7 +147,7 @@ def test_resolved_address_is_stated_as_fact(ask):
 
 def test_question_still_sent_when_the_address_is_unknown(ask):
     # At sea the lookup returns nothing; the question must go through anyway.
-    ask.describe_location = lambda _lat, _lon: None
+    ask.prompt_builder.describe_location = lambda _lat, _lon: None
     capture: dict = {}
     _call(
         ask,
