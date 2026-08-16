@@ -4,9 +4,9 @@ One table holds every entity type, keyed by pk/sk - see
 docs/03_dynamodb_table.md. This module owns the "ASK#" records: the status of a
 question between the app posting it and collecting the answer.
 
-Nothing here stores coordinates or a resolved address. The answer text may name
-places, which is unavoidable, but the raw position is not written down; records
-also expire after an hour (same doc, section 4).
+Records expire after an hour (same doc, section 4). Coordinates do not appear
+in them today, but only because the prompt is built before anything is stored -
+it is not a rule this module enforces.
 """
 
 import os

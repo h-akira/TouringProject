@@ -190,28 +190,40 @@ Web検索（US-1.04）は AgentCore Gateway の**組み込みコネクタ**で�
 ```mermaid
 flowchart LR
     App["アプリ<br/>録音"] -->|"① 音声"| GW["API Gateway<br/>POST /ask-audio"]
-    GW --> L["ask Lambda<br/>⚠️ ここで弾く"]
+    GW --> L["ask-audio Lambda<br/>⚠️ ここで弾く"]
     L --> S3[("S3")]
-    S3 --> T["Transcribe<br/>バッチ"]
-    T --> W["既存の非同期経路<br/>SQS → worker → AgentCore"]
-    W --> P["Polly"]
+    L -.->|"ジョブ開始"| T["Transcribe<br/>バッチ"]
+    T -->|"② 完了"| EB["EventBridge"]
+    EB --> TD["transcribe-done Lambda<br/>住所・方位を確定"]
+    TD --> Q["既存の非同期経路<br/>SQS → worker → AgentCore"]
+    Q --> P["Polly"]
     P --> S3
-    App -->|"② ポーリング"| R["result Lambda"]
+    App -->|"③ ポーリング"| R["result Lambda"]
     R -->|"テキスト + 音声URL"| App
-    App -->|"③ 音声を取得"| S3
+    App -->|"④ 音声を取得"| S3
 ```
 
 ⚠️ **Transcribe は「バッチ」を使う**（[`StartTranscriptionJob`](https://docs.aws.amazon.com/transcribe/latest/dg/how-input.html)）。
 ストリーミングは双方向通信なので**Lambdaを経由できない**が、
 **「喋りながら認識」は本アプリに必要ない**（レイテンシは許容済み）。
 
+⚠️ **バッチは非同期。** ジョブを投げた時点では結果が無いので、**その場でSQSに積めない。**
+完了は [EventBridge](https://docs.aws.amazon.com/transcribe/latest/dg/monitoring-events.html)
+（`Transcribe Job State Change`）で受け、**そこで初めて**住所・方位を確定してキューに積む。
+
 | | |
 |---|---|
 | 受け口 | **`POST /ask-audio`**（新設）。既存の `POST /ask`（テキスト）は**変えない** |
 | S3への配置 | **Lambdaが受けてPUTする。** バッチの入力は**S3必須**のため |
+| 完了の受け取り | **EventBridge**（ポーリングしない） |
 | 合流先 | **既存の非同期経路**（SQS → worker → DynamoDB）。ポーリングも `GET /ask/{requestId}` のまま |
 
 📌 **アプリにAWS認証情報は要らない。** APIキーだけで完結する（§8）。
+
+📌 **住所・方位の確定は両経路で同じ処理**（`lib/prompt.py`）。テキストは `ask` が、
+音声は `transcribe-done` が呼ぶ。⚠️ **二重に持たない。**
+
+⚠️ **ポーリングの打ち切り（80秒）が足りるか未検証。** STTのぶんが乗るので、実測して調整する（§12）。
 
 ### 回答の音声は署名付きURLで渡す
 
