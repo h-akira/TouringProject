@@ -11,7 +11,19 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Location from "expo-location";
 import Constants from "expo-constants";
 import { router, useFocusEffect } from "expo-router";
+import {
+  useAudioRecorder,
+  useAudioPlayer,
+  requestRecordingPermissionsAsync,
+  setAudioModeAsync,
+} from "expo-audio";
 import { loadApiKey, API_KEY_HEADER } from "@/api/apiKey";
+import {
+  RECORDING_OPTIONS,
+  MAX_RECORDING_MS,
+  sendVoiceQuestion,
+  type VoiceLocation,
+} from "@/api/voice";
 import type {
   AskRequest,
   AskAcceptedResponse,
@@ -28,12 +40,14 @@ const APP_VERSION = Constants.expoConfig?.version ?? "?";
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL;
 
 // 回答待ちのポーリング設定（docs/01a）。
-// 実測10〜13秒なので大半は最初の帯（1秒間隔）で終わる。
+// テキストは実測10〜13秒なので大半は最初の帯（1秒間隔）で終わる。
+// ⚠️ **音声はここに文字起こしのぶんが乗る**（実測15〜20秒）。バッチの
+// ジョブ待ちが入ると更に伸びうるので、打ち切りは音声を基準にしてある。
 // ⚠️ **必ず打ち切る。** 終わらない質問を延々と叩き続けない。
 const POLL_STEPS = [
-  { untilMs: 20_000, intervalMs: 1_000 },
-  { untilMs: 40_000, intervalMs: 2_000 },
-  { untilMs: 80_000, intervalMs: 4_000 },
+  { untilMs: 30_000, intervalMs: 1_000 },
+  { untilMs: 60_000, intervalMs: 2_000 },
+  { untilMs: 120_000, intervalMs: 4_000 },
 ] as const;
 /** 経過時間に応じた次のポーリング間隔。打ち切り後は null。 */
 function nextPollInterval(elapsedMs: number): number | null {
@@ -213,6 +227,19 @@ export default function Index() {
   // ⚠️ 保管は expo-secure-store で、.env には置かない（src/api/apiKey.ts）。
   const [apiKey, setApiKey] = useState<string | null>(null);
 
+  // 声で質問するための録音（US-2.01）。形式は M4A（src/api/voice.ts）。
+  const recorder = useAudioRecorder(RECORDING_OPTIONS);
+  const [recording, setRecording] = useState(false);
+
+  // 回答の読み上げ（US-2.02）。URLを差し替えて鳴らすだけなので、
+  // プレイヤーは1つを使い回す。
+  // ⚠️ 音声は署名付きURLで来る（数分で失効）。届いたらすぐ鳴らす。
+  const player = useAudioPlayer(null);
+
+  // 録音の押し忘れを止めるためのタイマー。走行中は画面を見ないので、
+  // 上限に達したら自動で送信に回す。
+  const recordingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // 設定画面から戻ってきたときに読み直す。
   // ⚠️ **useEffect(…, []) では足りない。** expo-router は戻ってきた画面を
   // 再マウントしないので、初回しか読まないとキーを保存した直後でも
@@ -384,12 +411,147 @@ export default function Index() {
 
       // ② 回答ができるまで取りに行く。
       // null は「中断された」= 画面を離れた/リセットされた。表示は変えない。
-      const answerText = await pollForAnswer(data.requestId, apiKey);
-      if (answerText !== null) setAnswer(answerText);
+      const result = await pollForAnswer(data.requestId, apiKey);
+      if (result !== null) {
+        setAnswer(result.text);
+        // 文字で聞いても音声は返る。走行中は画面を見ないので鳴らす。
+        if (result.audioUrl) playAnswer(result.audioUrl);
+      }
     } catch (e) {
       setAnswer("送信に失敗しました: " + String(e));
     } finally {
       setSending(false);
+    }
+  }
+
+  /** いま送るべき位置情報を組み立てる（テキストと音声で同じものを送る）。 */
+  function buildLocation(
+    current: Location.LocationObjectCoords,
+  ): VoiceLocation {
+    const origin = findHeadingOrigin(historyRef.current, current, Date.now());
+    const startedAt = conversationStartedAt.current;
+    return {
+      start: { latitude: current.latitude, longitude: current.longitude },
+      ...(startedAt !== null
+        ? { elapsedSeconds: Math.floor((Date.now() - startedAt) / 1000) }
+        : {}),
+      ...(origin
+        ? {
+            end: {
+              latitude: origin.point.coords.latitude,
+              longitude: origin.point.coords.longitude,
+            },
+          }
+        : {}),
+    };
+  }
+
+  /**
+   * 録音を始める（US-2.01）。
+   *
+   * ⚠️ **上限で自動的に止める。** 走行中は止める操作を忘れやすく、
+   * 押し忘れれば上限まで録り続けて**質問ごと失われる**（src/api/voice.ts）。
+   */
+  async function startRecording() {
+    if (recording || sending) return;
+    if (!apiKey) {
+      setAnswer("エラー: APIキーが未設定です（設定画面で入力してください）");
+      return;
+    }
+    try {
+      const { granted } = await requestRecordingPermissionsAsync();
+      if (!granted) {
+        setAnswer("エラー: マイクの許可が得られませんでした");
+        return;
+      }
+      // 録音中は他の音を止める。読み上げの途中で録り始めると自分の声に
+      // 回答が被る。
+      await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
+      await recorder.prepareToRecordAsync();
+      recorder.record();
+      setRecording(true);
+      setAnswer(null);
+      recordingTimer.current = setTimeout(() => {
+        // 押し忘れとみなして、録れているぶんで送る。
+        void stopRecordingAndSend();
+      }, MAX_RECORDING_MS);
+    } catch (e) {
+      setRecording(false);
+      setAnswer("録音を開始できませんでした: " + String(e));
+    }
+  }
+
+  /** 録音を止めて送る。停止と送信を分けない（走行中の操作を1つに保つ）。 */
+  async function stopRecordingAndSend() {
+    if (!recording) return;
+    if (recordingTimer.current) {
+      clearTimeout(recordingTimer.current);
+      recordingTimer.current = null;
+    }
+    setRecording(false);
+
+    let uri: string | null = null;
+    try {
+      await recorder.stop();
+      uri = recorder.uri;
+      // 録り終えたら再生できる状態に戻す（読み上げがここで鳴る）。
+      await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
+    } catch (e) {
+      setAnswer("録音を停止できませんでした: " + String(e));
+      return;
+    }
+    if (!uri || !coords || !apiKey || !API_BASE_URL) {
+      setAnswer("エラー: 録音を送信できませんでした");
+      return;
+    }
+
+    setSending(true);
+    pollAbort.current = false;
+    try {
+      const accepted = await sendVoiceQuestion(
+        API_BASE_URL,
+        apiKey,
+        uri,
+        buildLocation(coords),
+        sessionId,
+      );
+      if (accepted.httpStatus !== 202) {
+        // ⚠️ 413 は録音が長すぎたとき。走行中に意味が取れる言葉にする。
+        setAnswer(
+          accepted.httpStatus === 413
+            ? "エラー: 録音が長すぎます。短く話してください"
+            : describeHttpError(accepted.httpStatus, accepted.error),
+        );
+        return;
+      }
+      setSessionId(accepted.sessionId);
+      if (conversationStartedAt.current === null) {
+        conversationStartedAt.current = Date.now();
+      }
+      const result = await pollForAnswer(accepted.requestId, apiKey);
+      if (result !== null) {
+        setAnswer(result.text);
+        if (result.audioUrl) playAnswer(result.audioUrl);
+      }
+    } catch (e) {
+      setAnswer("送信に失敗しました: " + String(e));
+    } finally {
+      setSending(false);
+    }
+  }
+
+  /**
+   * 回答を読み上げる（US-2.02）。
+   *
+   * ⚠️ **失敗しても黙って諦める。** 回答そのものは画面に出ているので、
+   * 鳴らないことを理由にエラーで上書きすると、読める答えまで消えてしまう。
+   */
+  function playAnswer(audioUrl: string) {
+    try {
+      player.replace({ uri: audioUrl });
+      player.play();
+    } catch (e) {
+      console.warn("failed to play the answer", e);
     }
   }
 
@@ -406,18 +568,23 @@ export default function Index() {
    *
    * ⚠️ **APIキーは引数で受け取る**（state を直接読まない）。待っている間に
    * 設定画面でキーが変わっても、この回答は始めたときのキーで取りに行く。
+   *
+   * `audioUrl` は音声で聞いたときだけ付く（合成に失敗すると付かないので、
+   * **無くても回答は成立する**）。
    */
   async function pollForAnswer(
     requestId: string,
     key: string,
-  ): Promise<string | null> {
+  ): Promise<{ text: string; audioUrl?: string } | null> {
     const startedAt = Date.now();
 
     for (;;) {
       const elapsed = Date.now() - startedAt;
       const interval = nextPollInterval(elapsed);
       if (interval === null) {
-        return "時間がかかりすぎたため中断しました。もう一度お試しください。";
+        return {
+          text: "時間がかかりすぎたため中断しました。もう一度お試しください。",
+        };
       }
       await sleep(interval);
       // 待っている間に画面を離れた／リセットされたら、そこで諦める。
@@ -433,7 +600,7 @@ export default function Index() {
           // ⚠️ 429 はここでは諦めない。ポーリングは秒間1回叩くので
           // 一時的にレート上限に触れることがあり、次の周回で通る。
           if (res.status === 429) continue;
-          return describeHttpError(res.status, result.error);
+          return { text: describeHttpError(res.status, result.error) };
         }
       } catch (e) {
         // 走行中は電波が切れることがある。1回の失敗では諦めず、
@@ -441,9 +608,11 @@ export default function Index() {
         continue;
       }
 
-      if (result.status === "done") return result.answer ?? "";
+      if (result.status === "done") {
+        return { text: result.answer ?? "", audioUrl: result.audioUrl };
+      }
       if (result.status === "error") {
-        return "エラー: " + (result.error ?? "回答できませんでした");
+        return { text: "エラー: " + (result.error ?? "回答できませんでした") };
       }
       // pending ならもう一周
     }
@@ -461,9 +630,12 @@ export default function Index() {
   }
 
   // 画面を離れるときにポーリングを止める（放置すると裏で叩き続ける）。
+  // ⚠️ 録音の自動送信タイマーも一緒に止める。残しておくと、画面を離れた後に
+  // 発火して送信が走る。
   useEffect(() => {
     return () => {
       pollAbort.current = true;
+      if (recordingTimer.current) clearTimeout(recordingTimer.current);
     };
   }, []);
 
@@ -527,6 +699,32 @@ export default function Index() {
             </View>
           ) : (
             <Text style={styles.note}>進行方向: まだ出せません（停車中など）</Text>
+          )}
+        </View>
+      )}
+
+      {/* 声で質問する（US-2.01）。⚠️ **これが本命の入口。**
+          走行中は画面を見ないので、他のどれより大きく、単独で押せる位置に置く。
+          止め忘れても上限で自動的に送られる（src/api/voice.ts）。 */}
+      {coords && (
+        <View style={styles.voiceArea}>
+          <Pressable
+            style={[
+              styles.voiceButton,
+              recording && styles.voiceButtonRecording,
+              sending && styles.voiceButtonDisabled,
+            ]}
+            onPress={recording ? stopRecordingAndSend : startRecording}
+            disabled={sending}
+          >
+            <Text style={styles.voiceButtonText}>
+              {recording ? "■ 話し終えたら押す" : "🎤 押して話す"}
+            </Text>
+          </Pressable>
+          {recording && (
+            <Text style={styles.recordingNote}>
+              録音中…（{MAX_RECORDING_MS / 1000}秒で自動送信）
+            </Text>
           )}
         </View>
       )}
@@ -627,6 +825,20 @@ const styles = StyleSheet.create({
   },
   label: { fontSize: 13, color: "#AAAAAA", marginTop: 8 },
   value: { fontSize: 20, fontWeight: "bold", color: "#FF6B35" },
+  voiceArea: { alignSelf: "stretch", alignItems: "center", gap: 8 },
+  // ⚠️ 走行中はこれを見ずに押す。指の当たる面積を大きく取る。
+  voiceButton: {
+    alignSelf: "stretch",
+    backgroundColor: "#FF6B35",
+    paddingVertical: 28,
+    borderRadius: 12,
+    alignItems: "center",
+  },
+  // 録音中は色を変える。画面を一瞬見たときに状態が分かるように。
+  voiceButtonRecording: { backgroundColor: "#C0392B" },
+  voiceButtonDisabled: { backgroundColor: "#8A5A44" },
+  voiceButtonText: { color: "#FFFFFF", fontSize: 22, fontWeight: "bold" },
+  recordingNote: { fontSize: 13, color: "#FF9E7A" },
   askArea: { alignSelf: "stretch", alignItems: "center", gap: 12 },
   input: {
     alignSelf: "stretch",
