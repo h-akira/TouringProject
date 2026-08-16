@@ -129,6 +129,9 @@ def _parse_multipart(event: dict[str, Any]) -> Optional[dict[str, Any]]:
             continue
         if name == "audio":
             parts[name] = payload
+            # Kept so the handler can reject a format Transcribe would choke
+            # on. Under a name no form field can collide with.
+            parts["audio:content-type"] = (part.get_content_type() or "").lower()
         else:
             parts[name] = payload.decode("utf-8", errors="replace")
     return parts
@@ -164,6 +167,17 @@ def handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
     audio = parts.get("audio")
     if not isinstance(audio, bytes) or not audio:
         return _response(400, {"error": "`audio` is required and must be non-empty."})
+
+    # ⚠️ MediaFormat is sent to Transcribe as a constant, so anything that is
+    # not M4A produces a job that fails minutes later and reaches the rider as
+    # "the recording could not be understood" - a submit-time mistake reported
+    # as a recognition failure. Rejected here instead.
+    declared = parts.get("audio:content-type", "")
+    if declared and declared not in AUDIO_CONTENT_TYPES:
+        return _response(
+            400,
+            {"error": f"`audio` must be {AUDIO_FORMAT} ({AUDIO_CONTENT_TYPES[0]})."},
+        )
 
     # ⚠️ The check that replaces "how many seconds may you record". API Gateway
     # caps the payload at 10MB before this runs, but that ceiling is far above
@@ -214,6 +228,14 @@ def handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
         # Logged for CloudWatch; the client gets a generic message rather than
         # the raw AWS error, which can name internal resources.
         print(f"failed to accept recording: {type(error).__name__}: {error}")
+        # ⚠️ The record may already exist by now - create_pending_audio runs
+        # before the job starts, so a failure to start it leaves a
+        # `transcribing` record that no completion event will ever move. Mark
+        # it failed rather than letting it sit there until its TTL.
+        try:
+            store.save_error(request_id, "The recording could not be accepted.")
+        except Exception:  # noqa: BLE001 - nothing left to try
+            pass
         return _response(502, {"error": "The recording could not be accepted."})
 
     print(f"transcribing {request_id}: {len(audio)} bytes")

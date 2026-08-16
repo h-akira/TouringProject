@@ -13,7 +13,10 @@ parallel = true
 [default.deploy.parameters]
 stack_name = "stack-trg-dev-main"
 region = "ap-northeast-1"
-capabilities = "CAPABILITY_IAM"
+# ⚠️ NAMED, not plain CAPABILITY_IAM: the template creates an IAM role with an
+# explicit RoleName (the one Transcribe assumes to write transcripts), and
+# CloudFormation refuses the whole change set without it.
+capabilities = "CAPABILITY_NAMED_IAM"
 confirm_changeset = true
 resolve_s3 = true
 # AgentRuntimeArn is the NAME of an SSM parameter, not the ARN itself, so it is

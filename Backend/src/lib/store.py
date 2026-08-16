@@ -11,6 +11,7 @@ it is not a rule this module enforces.
 
 import os
 import time
+from decimal import Decimal
 from typing import Any, Optional
 
 import boto3
@@ -60,6 +61,46 @@ def create_pending(request_id: str, session_id: str, prompt: str) -> None:
     )
 
 
+def _to_dynamo_numbers(value: Any) -> Any:
+    """Convert floats to Decimal, which is the only number DynamoDB takes.
+
+    ⚠️ boto3's resource layer raises TypeError("Float types are not supported")
+    rather than rounding, so coordinates arriving from json.loads - which are
+    always float - would fail the write outright.
+
+    Applied on the way in, so callers can hand over ordinary JSON.
+    lib/prompt.py sees floats again on the way out (see from_dynamo_numbers).
+    """
+    if isinstance(value, float):
+        # Via str, not float->Decimal directly: Decimal(35.68) carries the
+        # binary representation's noise into the stored value.
+        return Decimal(str(value))
+    if isinstance(value, dict):
+        return {k: _to_dynamo_numbers(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_to_dynamo_numbers(v) for v in value]
+    return value
+
+
+def from_dynamo_numbers(value: Any) -> Any:
+    """Undo _to_dynamo_numbers: Decimal back to int/float.
+
+    ⚠️ Needed because Decimal is not a float. Code that guards on
+    `isinstance(x, (int, float))` - lib/prompt.py does, deliberately - silently
+    treats a Decimal as absent, which would drop the address and heading from
+    every spoken question without raising anything.
+    """
+    if isinstance(value, Decimal):
+        # Whole numbers came in as int (elapsedSeconds); keep them that way, or
+        # the int-only guards reject them just as float ones would.
+        return int(value) if value == value.to_integral_value() else float(value)
+    if isinstance(value, dict):
+        return {k: from_dynamo_numbers(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [from_dynamo_numbers(v) for v in value]
+    return value
+
+
 def create_pending_audio(
     request_id: str, session_id: str, location: dict[str, Any]
 ) -> None:
@@ -81,7 +122,7 @@ def create_pending_audio(
             **_key(request_id),
             "status": "transcribing",
             "sessionId": session_id,
-            "location": location,
+            "location": _to_dynamo_numbers(location),
             "createdAt": now,
             "expiresAt": now + TTL_SECONDS,
         }

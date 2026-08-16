@@ -197,3 +197,50 @@ def test_a_recording_being_transcribed_reads_as_pending(result):
     body = json.loads(response["body"])
 
     assert body["status"] == "pending"
+
+
+def test_a_transcription_that_never_reported_back_becomes_an_error(result):
+    # ⚠️ EventBridge is the only thing that moves a `transcribing` record. If
+    # that event never arrives, nothing else will, and the app would poll until
+    # it gave up - reading as slow rather than broken.
+    response = _call(
+        result,
+        {
+            "status": "transcribing",
+            "sessionId": SESSION_ID,
+            "createdAt": time.time() - result.STUCK_TRANSCRIBING_SECONDS - 1,
+        },
+    )
+
+    assert json.loads(response["body"])["status"] == "error"
+
+
+def test_a_recent_transcription_is_still_pending(result):
+    # The other side of that cutoff: a job still running must not be called dead.
+    response = _call(
+        result,
+        {"status": "transcribing", "sessionId": SESSION_ID, "createdAt": time.time()},
+    )
+
+    assert json.loads(response["body"])["status"] == "pending"
+
+
+def test_timestamps_are_read_as_dynamodb_returns_them(result):
+    """⚠️ DynamoDB has no float type - every number comes back as Decimal.
+
+    Guarding on isinstance(x, (int, float)) reads them all as missing, which
+    disables the abandonment check silently: a dead question reports `pending`
+    forever. The other tests here pass plain floats and cannot see it.
+    """
+    from decimal import Decimal
+
+    response = _call(
+        result,
+        {
+            "status": "processing",
+            "sessionId": SESSION_ID,
+            "claimedAt": Decimal(int(time.time() - result.ABANDONED_AFTER_SECONDS - 1)),
+        },
+    )
+
+    assert json.loads(response["body"])["status"] == "error"

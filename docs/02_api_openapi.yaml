@@ -448,7 +448,7 @@ components:
 
             Absent if speech synthesis failed. The answer still stands; read it
             from `answer` instead.
-          example: https://s3.ap-northeast-1.amazonaws.com/bucket/key?X-Amz-Signature=...
+          example: https://bucket.s3.ap-northeast-1.amazonaws.com/answers/abc.mp3?X-Amz-Signature=...
         sessionId:
           type: string
           description: The conversation id this question belongs to.

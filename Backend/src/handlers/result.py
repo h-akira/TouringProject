@@ -16,6 +16,7 @@ reported as an error instead - the rider gets told, rather than left waiting.
 import json
 import os
 import time
+from decimal import Decimal
 from typing import Any, Optional
 
 import boto3
@@ -25,6 +26,11 @@ from lib import store
 # Past this, a `processing` record has been abandoned: the queue's retries
 # (3 x 180s visibility) are spent, so nothing is coming back for it.
 ABANDONED_AFTER_SECONDS = 900
+
+# Past this, a `transcribing` record is not going to be transcribed. Generous
+# next to the app's 80s polling cutoff - the app has stopped watching long
+# before - so this only decides what a later poll on the same id is told.
+STUCK_TRANSCRIBING_SECONDS = 600
 
 # Long enough to start playing an answer, short enough that a leaked link is
 # worth little. The app fetches it immediately.
@@ -97,6 +103,21 @@ def handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
             },
         )
 
+    # ⚠️ A recording whose transcription never reported back. EventBridge is
+    # the only thing that moves a `transcribing` record, so if that event never
+    # arrives - the job died, or the rule failed to deliver - nothing else
+    # will, and the app would poll until it gave up and call it slow rather
+    # than broken.
+    if status == "transcribing" and _is_stuck_transcribing(item):
+        return _response(
+            200,
+            {
+                "status": "error",
+                "error": "The recording could not be understood.",
+                "sessionId": session_id,
+            },
+        )
+
     return _response(200, {"status": "pending", "sessionId": session_id})
 
 
@@ -125,10 +146,33 @@ def _audio_url(audio_key: Any) -> Optional[str]:
         return None
 
 
+def _seconds_since(item: dict[str, Any], field: str) -> Optional[float]:
+    """How long ago `field` was written, or None if it was not.
+
+    ⚠️ Decimal is accepted alongside int/float because that is what DynamoDB
+    returns for a number - it has no float type. Guarding on (int, float)
+    alone reads every stored timestamp as missing, which silently disables
+    whatever the caller was about to decide.
+    """
+    value = item.get(field)
+    if not isinstance(value, (int, float, Decimal)) or isinstance(value, bool):
+        return None
+    return time.time() - float(value)
+
+
+def _is_stuck_transcribing(item: dict[str, Any]) -> bool:
+    """Whether a recording has been transcribing longer than it plausibly could.
+
+    Keyed off createdAt rather than claimedAt: nothing claims a record in this
+    state, which is exactly the problem - the only thing that moves it is an
+    EventBridge event that may never come.
+    """
+    elapsed = _seconds_since(item, "createdAt")
+    return elapsed is not None and elapsed > STUCK_TRANSCRIBING_SECONDS
+
+
 def _is_abandoned(item: dict[str, Any]) -> bool:
     """Whether a claimed question has been left unfinished for good."""
-    claimed_at = item.get("claimedAt")
-    if not isinstance(claimed_at, (int, float)):
-        # Written by every claim; absent only on records from before that.
-        return False
-    return time.time() - float(claimed_at) > ABANDONED_AFTER_SECONDS
+    # Absent only on records written before claimedAt existed.
+    elapsed = _seconds_since(item, "claimedAt")
+    return elapsed is not None and elapsed > ABANDONED_AFTER_SECONDS

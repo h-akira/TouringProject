@@ -285,3 +285,40 @@ def test_the_transcript_is_written_to_our_own_bucket(ask_audio):
     request_id = json.loads(result["body"])["requestId"]
     assert capture["job"]["OutputBucketName"] == "bucket-test"
     assert capture["job"]["OutputKey"] == f"transcripts/{request_id}.json"
+
+
+def test_a_format_transcribe_cannot_read_is_rejected_at_submit(ask_audio):
+    # MediaFormat is sent as a constant, so a WAV upload would produce a job
+    # that fails minutes later and reaches the rider as "could not be
+    # understood" - a submit-time mistake dressed up as a recognition failure.
+    body = (
+        b'--' + BOUNDARY.encode() + b'\r\n'
+        b'Content-Disposition: form-data; name="audio"; filename="q.wav"\r\n'
+        b'Content-Type: audio/wav\r\n\r\nRIFF....\r\n'
+        b'--' + BOUNDARY.encode() + b'\r\n'
+        b'Content-Disposition: form-data; name="location"\r\n\r\n'
+        b'{"start":{"latitude":35.0,"longitude":139.0}}\r\n'
+        b'--' + BOUNDARY.encode() + b'--\r\n'
+    )
+    capture: dict = {}
+    result = _call(ask_audio, event=_event(body), capture=capture)
+
+    assert result["statusCode"] == 400
+    # And it costs nothing: no upload, no job.
+    assert "put" not in capture and "job" not in capture
+
+
+def test_a_failure_starting_the_job_does_not_strand_the_record(ask_audio):
+    # create_pending_audio runs before the job starts, so a failure here leaves
+    # a `transcribing` record that no completion event will ever move.
+    saved = {}
+
+    def fake_save_error(request_id, message):
+        saved["requestId"] = request_id
+        saved["message"] = message
+
+    ask_audio.store.save_error = fake_save_error
+    result = _call(ask_audio, fail_on="transcribe")
+
+    assert result["statusCode"] == 502
+    assert saved["requestId"]

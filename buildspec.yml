@@ -115,13 +115,18 @@ phases:
         (
           cd Backend
           sam build
+          # ⚠️ CAPABILITY_NAMED_IAM, not plain CAPABILITY_IAM: the template
+          # creates an IAM role with an explicit RoleName (the one Transcribe
+          # assumes to write transcripts), and CloudFormation refuses the whole
+          # change set without it. Nothing local catches this - it fails at
+          # deploy time only.
           sam deploy \
             --stack-name stack-trg-${ENV}-main \
             --no-confirm-changeset \
             --no-fail-on-empty-changeset \
             --resolve-s3 \
             --parameter-overrides Environment=${ENV} AgentRuntimeArn=/trg/${ENV}/agent-runtime-arn \
-            --capabilities CAPABILITY_IAM \
+            --capabilities CAPABILITY_NAMED_IAM \
             --region ${BACKEND_REGION}
         )
 

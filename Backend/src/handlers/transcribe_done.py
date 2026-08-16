@@ -81,7 +81,11 @@ def _process(job_name: str, status: str) -> None:
         store.save_error(job_name, "Nothing could be heard in the recording.")
         return
 
-    location = record.get("location") or {}
+    # ⚠️ Back to int/float first. DynamoDB returns numbers as Decimal, and
+    # lib/prompt.py guards on isinstance(x, (int, float)) - a Decimal reads as
+    # absent there, so the address and heading would vanish from every spoken
+    # question with nothing raised to say so.
+    location = store.from_dynamo_numbers(record.get("location") or {})
     prompt = prompt_builder.build(
         question,
         location.get("start"),

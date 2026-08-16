@@ -3,9 +3,10 @@ Transform: AWS::Serverless-2016-10-31
 Description: >
   Touring AI voice app - backend. POST /ask resolves the rider's address and
   forwards the question to the AgentCore agent, which owns the conversation
-  and web search; GET /health is a liveness check. Speech happens in the app
-  (see pre-research/voice/), so this API takes text. Access is controlled by
-  an API key with a usage plan (see docs/01_architecture.md sections 8-9).
+  and web search; POST /ask-audio does the same for a recording, transcribing
+  it first and speaking the answer back; GET /health is a liveness check.
+  Access is controlled by an API key with a usage plan (see
+  docs/01_architecture.md sections 7-9).
 
 # Naming convention: <resource-type>-trg-<env>-<identifier>
 #   trg = touring, env = dev/prod, identifier = "main" for a single/primary
@@ -383,6 +384,12 @@ Resources:
                 TranscriptionJobStatus:
                   - COMPLETED
                   - FAILED
+            # ⚠️ This matches EVERY Transcribe job in the account and region,
+            # not just this app's - the event carries no field to filter the
+            # job name on. Harmless today, since nothing else here uses
+            # Transcribe, and handlers/transcribe_done.py returns early when
+            # the job name matches no record of ours. That check is what makes
+            # the broad pattern safe; do not remove it.
 
   # Where the waiting actually happens. Invoked from the queue rather than API
   # Gateway, so the agent's 10-25s no longer counts against the 29s ceiling.

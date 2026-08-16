@@ -58,6 +58,15 @@ class _FakeStore:
     def save_error(self, _request_id, message):
         self.saved_error = message
 
+    # Delegated to the real implementation rather than stubbed: the conversion
+    # is the thing under test in test_the_address_survives_a_round_trip, and a
+    # fake that just returned its argument would hide exactly that bug.
+    @staticmethod
+    def from_dynamo_numbers(value):
+        from lib.store import from_dynamo_numbers
+
+        return from_dynamo_numbers(value)
+
 
 @pytest.fixture
 def transcribe_done(monkeypatch):
@@ -202,3 +211,39 @@ def test_the_transcript_is_not_logged(transcribe_done, capsys):
     _run(transcribe_done, store)
 
     assert "この山は何ですか" not in capsys.readouterr().out
+
+
+def test_the_address_survives_a_round_trip_through_dynamodb(transcribe_done):
+    """⚠️ The regression the other tests cannot see.
+
+    DynamoDB hands numbers back as Decimal, and prompt.build guards on
+    isinstance(x, (int, float)) - so without conversion the coordinates read as
+    absent and the prompt loses its address and heading, silently. The fake
+    store elsewhere in this file returns plain floats, which hides it.
+    """
+    from decimal import Decimal
+
+    store = _FakeStore(
+        record={
+            "status": "transcribing",
+            "sessionId": "touring-" + "a" * 32,
+            "location": {
+                # Fractional, as a real fix is - a whole number would pass even
+                # if the conversion only handled integers.
+                "start": {
+                    "latitude": Decimal("36.5"),
+                    "longitude": Decimal("139.25"),
+                },
+                "end": {"latitude": Decimal("35.0"), "longitude": Decimal("139.25")},
+                "elapsedSeconds": Decimal("120"),
+            },
+        }
+    )
+    _run(transcribe_done, store)
+
+    # Position present, and still fractional...
+    assert "36.5" in store.prompt and "139.25" in store.prompt
+    # ...heading computed from both points...
+    assert "進行方向: 北" in store.prompt
+    # ...and the elapsed note, which needs an int specifically.
+    assert "約2分後" in store.prompt

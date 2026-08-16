@@ -138,6 +138,17 @@ Resources:
               - arn:aws:s3:::cdk-*/*
               - !Sub "arn:aws:s3:::bedrock-agentcore-codebuild-sources-${AWS::AccountId}-*"
               - !Sub "arn:aws:s3:::bedrock-agentcore-codebuild-sources-${AWS::AccountId}-*/*"
+          # ⚠️ The app's OWN bucket, which is not an artifact store: the Backend
+          # stack creates it to hold recordings and synthesised answers. The
+          # statement above cannot cover it - it is scoped by bucket name, and
+          # none of those prefixes match - so without this the stack fails at
+          # CREATE on the first deploy that includes it.
+          - Sid: ApplicationBuckets
+            Effect: Allow
+            Action: s3:*
+            Resource:
+              - !Sub "arn:aws:s3:::s3-trg-${Env}-audio-${AWS::AccountId}"
+              - !Sub "arn:aws:s3:::s3-trg-${Env}-audio-${AWS::AccountId}/*"
           # The application resources the two stacks manage.
           - Sid: ApplicationResources
             Effect: Allow
@@ -150,6 +161,9 @@ Resources:
               - bedrock-agentcore-control:*
               - ecr:*
               - codebuild:*
+              # The rule that delivers Transcribe's completion to the Lambda
+              # that queues the question (docs/01_architecture.md section 7).
+              - events:*
             Resource: "*"
           # SAM and CDK both create execution roles for what they deploy.
           - Sid: IAMDeploy

@@ -156,3 +156,57 @@ def test_saving_an_error_drops_the_prompt(store):
 def test_get_returns_none_when_absent(store):
     _use(store, _FakeTable())
     assert store.get("req-1") is None
+
+
+def test_coordinates_survive_the_real_dynamodb_serializer(store):
+    """⚠️ Guards the bug the fake table cannot see.
+
+    Every other test here stubs the table, so boto3's serializer never runs and
+    a float sails through. Against the real one it does not: DynamoDB has no
+    float type and the resource layer raises rather than rounding. This drives
+    the actual TypeSerializer to prove the write would be accepted.
+    """
+    from boto3.dynamodb.types import TypeSerializer
+
+    table = _use(store, _FakeTable())
+    store.create_pending_audio(
+        "req-1",
+        SESSION_ID,
+        {"start": {"latitude": 35.681, "longitude": 139.767}, "elapsedSeconds": 120},
+    )
+
+    # Raises TypeError("Float types are not supported") if anything is a float.
+    TypeSerializer().serialize(table.item)
+
+
+def test_coordinates_come_back_as_floats(store):
+    """The other half: Decimal must not reach lib/prompt.py.
+
+    prompt.build guards on isinstance(x, (int, float)), so a Decimal reads as
+    "no location" and the address and heading are dropped silently - no
+    exception, just a worse answer.
+    """
+    original = {
+        "start": {"latitude": 35.681, "longitude": 139.767},
+        "elapsedSeconds": 120,
+    }
+    table = _use(store, _FakeTable())
+    store.create_pending_audio("req-1", SESSION_ID, original)
+
+    restored = store.from_dynamo_numbers(table.item["location"])
+
+    assert restored == original
+    assert isinstance(restored["start"]["latitude"], float)
+    # Whole numbers must stay int: format_elapsed accepts int only.
+    assert isinstance(restored["elapsedSeconds"], int)
+
+
+def test_stored_coordinates_keep_their_value(store):
+    """Decimal(str(x)) rather than Decimal(x): the latter stores binary noise."""
+    table = _use(store, _FakeTable())
+    store.create_pending_audio(
+        "req-1", SESSION_ID, {"start": {"latitude": 35.681, "longitude": 139.767}}
+    )
+
+    stored = table.item["location"]["start"]
+    assert str(stored["latitude"]) == "35.681"
