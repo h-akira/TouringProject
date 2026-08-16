@@ -189,7 +189,7 @@ Web検索（US-1.04）は AgentCore Gateway の**組み込みコネクタ**で�
 
 ```mermaid
 flowchart LR
-    App["アプリ<br/>録音"] -->|"① 音声"| GW["API Gateway<br/>POST /ask/audio"]
+    App["アプリ<br/>録音"] -->|"① 音声"| GW["API Gateway<br/>POST /ask-audio"]
     GW --> L["ask Lambda<br/>⚠️ ここで弾く"]
     L --> S3[("S3")]
     S3 --> T["Transcribe<br/>バッチ"]
@@ -207,7 +207,7 @@ flowchart LR
 
 | | |
 |---|---|
-| 受け口 | **`POST /ask/audio`**（新設）。既存の `POST /ask`（テキスト）は**変えない** |
+| 受け口 | **`POST /ask-audio`**（新設）。既存の `POST /ask`（テキスト）は**変えない** |
 | S3への配置 | **Lambdaが受けてPUTする。** バッチの入力は**S3必須**のため |
 | 合流先 | **既存の非同期経路**（SQS → worker → DynamoDB）。ポーリングも `GET /ask/{requestId}` のまま |
 

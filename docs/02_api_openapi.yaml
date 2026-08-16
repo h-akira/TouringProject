@@ -59,7 +59,8 @@ paths:
         its status is `done` or `error`.
 
         Pass the same `sessionId` on later requests to continue the
-        conversation (US-1.02). Voice (STT/TTS) comes later.
+        conversation (US-1.02). To ask by voice, send the recording to
+        POST /ask-audio instead - the reply comes back the same way.
       requestBody:
         required: true
         content:
@@ -105,6 +106,90 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
         "502":
           description: The question could not be accepted for processing.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /ask-audio:
+    post:
+      operationId: askAudio
+      summary: Submit a recorded question about the current location
+      description: >
+        The voice counterpart of POST /ask: send the recording instead of
+        typing the question. The backend transcribes it and answers exactly as
+        it would a typed one, so the reply arrives the same way - 202 with a
+        `requestId`, then poll GET /ask/{requestId}.
+
+        Transcription happens here rather than in the app so that the audio
+        passes through a Lambda that can check it first: the payload size caps
+        how long a recording may be, which is the only place that limit can be
+        enforced (01_architecture.md section 7). It also means the app needs no
+        AWS credentials - the API key is enough.
+
+        ⚠️ Expect this to take longer than POST /ask: transcription runs as a
+        batch job, and batch jobs queue when concurrency is capped.
+
+        The path is /ask-audio, not /ask/audio, because the latter sits inside
+        /ask/{requestId} - `audio` is a perfectly good requestId as far as that
+        route is concerned, and the two would only stay apart while they never
+        shared a method.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/AskAudioRequest"
+            encoding:
+              audio:
+                contentType: audio/mp4
+              location:
+                contentType: application/json
+      responses:
+        "202":
+          description: >
+            Recording accepted and queued. Poll GET /ask/{requestId} for the
+            answer, same as POST /ask.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AskAcceptedResponse"
+        "400":
+          description: >
+            Invalid request: missing or empty audio, an unsupported format, a
+            malformed `location` part, or a `sessionId` shorter than 33
+            characters.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: The API key is missing or wrong (see POST /ask).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "413":
+          description: >
+            The recording is too long. The limit is expressed in bytes, since
+            that is what the payload gives us - see `audio` for the ceiling.
+
+            ⚠️ API Gateway enforces its own 10MB limit before the handler runs,
+            so a large enough body fails without this shape.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: The usage plan's limit was hit (see POST /ask).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "502":
+          description: >
+            The recording could not be accepted for processing - it could not
+            be stored, or transcription could not be started.
           content:
             application/json:
               schema:
@@ -261,8 +346,46 @@ components:
             resolve "that mountain" against the position it was asked at rather
             than the current one. Omit on the first question of a conversation.
           example: 180
-        # FUTURE: audio of the question (format/upload method TBD; large audio
-        # may go via S3 rather than inline). See 01_architecture.md §9.
+    AskAudioRequest:
+      type: object
+      description: >
+        Request body for POST /ask-audio, as multipart/form-data.
+
+        The question is the recording; everything else matches AskRequest and
+        carries the same meaning. It is multipart rather than JSON so the audio
+        travels as bytes - base64 in a JSON field would inflate it by a third
+        against a payload ceiling that doubles as the length limit.
+      required: [audio, location]
+      properties:
+        audio:
+          type: string
+          format: binary
+          description: >
+            The recording, as M4A (MPEG-4 / AAC).
+
+            ⚠️ Transcribe recommends FLAC or WAV, but Android's recorder emits
+            neither; M4A is where what the device can produce and what batch
+            Transcribe accepts overlap, so nothing has to transcode
+            (01_architecture.md section 7).
+
+            The size limit is what bounds recording length - a question runs a
+            few seconds to a dozen, tens of KB at this encoding, so the cap sits
+            far above normal use and only catches a client asking for trouble.
+        location:
+          type: string
+          description: >
+            A JSON object with `start`, and optionally `end` and
+            `elapsedSeconds` - the same fields AskRequest defines, with the same
+            meaning. Sent as a JSON string because multipart parts are text.
+          example: '{"start":{"latitude":35.0,"longitude":139.0}}'
+        sessionId:
+          type: string
+          description: >
+            Conversation id, exactly as in AskRequest: omit it to start a new
+            conversation and store the one that comes back.
+          minLength: 33
+          maxLength: 128
+          example: touring-0123456789abcdef0123456789abcdef
 
     AskAcceptedResponse:
       type: object
@@ -305,12 +428,31 @@ components:
             Why the question could not be answered. Present when the status is
             `error`. Safe to show to the rider.
           example: The agent could not be reached.
+        audioUrl:
+          type: string
+          format: uri
+          description: >
+            Presigned S3 URL for the spoken answer (Polly). Present when done,
+            alongside `answer`.
+
+            A link rather than the audio itself, so the text arrives without
+            waiting on it and the app can show the answer while the audio
+            downloads. ⚠️ It also keeps this response small, which matters
+            because the rider loses signal and the app retries - re-sending the
+            audio on every attempt is what that would cost.
+
+            ⚠️ Fetch it directly, with no API key: it is S3, not this API, and
+            the signature is the authorisation. The link expires within minutes,
+            and the object itself is deleted after a few days, so treat it as
+            good for this playback only - do not store it.
+
+            Absent if speech synthesis failed. The answer still stands; read it
+            from `answer` instead.
+          example: https://s3.ap-northeast-1.amazonaws.com/bucket/key?X-Amz-Signature=...
         sessionId:
           type: string
           description: The conversation id this question belongs to.
           example: touring-0123456789abcdef0123456789abcdef
-        # FUTURE: audio answer (Polly). Either audio bytes or an S3 URL.
-        # See 01_architecture.md §9.
 
     ErrorResponse:
       type: object

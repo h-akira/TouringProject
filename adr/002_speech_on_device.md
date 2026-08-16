@@ -85,7 +85,7 @@ Transcribeには2つの呼び方があり、**バッチならLambdaから呼べ�
 
 **音声ファイルをLambdaに送り、Lambdaが Transcribe を呼ぶ。**
 
-- **`POST /ask/audio`（新設）** で音声を受ける。既存の `POST /ask`（テキスト）は**変えない**
+- **`POST /ask-audio`（新設）** で音声を受ける。既存の `POST /ask`（テキスト）は**変えない**
 - Lambdaが音声を**S3にPUT**してからジョブを投げる（バッチの入力は**S3必須**）
 - ⚠️ **アプリにAWS認証情報を渡さずに済む**（APIキーだけで完結し、[004](004_api_key_auth.md) と整合）
 

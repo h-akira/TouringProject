@@ -54,7 +54,7 @@ Backend/
 音声の方式は**「手前でSTT」に決定済み**（[pre-research/voice/](../pre-research/voice/)）。
 Nova 2 Sonic（音声→音声）は日本語非対応のため採用しなかった。
 
-⚠️ **STT/TTS はこのスタックに入る。** アプリは録音した音声を **`POST /ask/audio`** に送り、
+⚠️ **STT/TTS はこのスタックに入る。** アプリは録音した音声を **`POST /ask-audio`** に送り、
 **Lambdaが Transcribe（バッチ）を呼ぶ**（[docs/01](../docs/01_architecture.md) §7）。
 既存の `POST /ask`（テキスト）は変わらない。
 
@@ -264,6 +264,6 @@ CloudFormation・S3（SAM管理バケット）・Lambda・API Gateway・IAM の�
   （⚠️ キーとクォータは入ったが、**予算による遮断だけが残っている**）
 - **DLQの監視**（`sqs-trg-dev-ask-dlq` に溜まっても気づく手段が無い）
 
-- **音声対応**（`POST /ask/audio` の新設・S3・Transcribe/Polly）。[docs/01](../docs/01_architecture.md) §7
+- **音声対応**（`POST /ask-audio` の新設・S3・Transcribe/Polly）。[docs/01](../docs/01_architecture.md) §7
 
 > ⚠️ **LLMの呼び出しはここではない**（AgentCoreの担当）。
