@@ -63,8 +63,13 @@ def test_japanese_voice_is_requested(speech):
     speech.synthesize("req-1", "それは富士山です")
 
     assert capture["polly"]["LanguageCode"] == "ja-JP"
-    assert capture["polly"]["Engine"] == "neural"
     assert capture["polly"]["Text"] == "それは富士山です"
+    # ⚠️ Neural, and a voice that supports it. Japanese has four voices but
+    # Mizuki is standard-only, so pairing her with this engine would fail the
+    # call outright - and the answer would arrive with no audio at all.
+    assert capture["polly"]["Engine"] == "neural"
+    assert capture["polly"]["VoiceId"] == speech.VOICE_ID
+    assert speech.VOICE_ID in ("Kazuha", "Tomoko", "Takumi")
 
 
 def test_polly_failure_does_not_take_the_answer_with_it(speech):

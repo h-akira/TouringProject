@@ -16,8 +16,10 @@ import boto3
 
 AUDIO_BUCKET = os.environ.get("AUDIO_BUCKET", "")
 
-# Neural Japanese voices, confirmed via describe-voices (pre-research/voice).
-VOICE_ID = os.environ.get("POLLY_VOICE_ID", "Takumi")
+# ⚠️ Japanese has four Polly voices but only three do neural: Kazuha and
+# Tomoko (female) and Takumi (male). Mizuki is standard-only, so picking her
+# would cost audible quality (confirmed with describe-voices, not remembered).
+VOICE_ID = os.environ.get("POLLY_VOICE_ID", "Kazuha")
 ENGINE = "neural"
 
 # MP3 rather than PCM: it is what a phone plays without help, and it keeps the
