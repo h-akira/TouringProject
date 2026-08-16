@@ -204,8 +204,13 @@ paths:
         is `pending` the answer is still being generated.
 
         The app backs its polling off (1s, then 2s, then 4s) and gives up after
-        80 seconds - measured answers take 10-13s, so anything much beyond that
-        has gone wrong.
+        120 seconds. Typed answers measure 10-13s and spoken ones 15-20s, the
+        difference being transcription; the cutoff is set against the spoken
+        case, plus room for a batch job that has to queue.
+
+        `pending` covers more than one internal state - a recording still being
+        transcribed reports as pending too, since the app has nothing different
+        to do about it.
 
         Note that a failed question is reported as 200 with `status: "error"`,
         not as an HTTP error: the request itself succeeded.

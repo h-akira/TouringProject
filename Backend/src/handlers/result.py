@@ -29,7 +29,7 @@ from lib import store
 ABANDONED_AFTER_SECONDS = 900
 
 # Past this, a `transcribing` record is not going to be transcribed. Generous
-# next to the app's 80s polling cutoff - the app has stopped watching long
+# next to the app's 120s polling cutoff - the app has stopped watching long
 # before - so this only decides what a later poll on the same id is told.
 STUCK_TRANSCRIBING_SECONDS = 600
 

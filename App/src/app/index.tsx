@@ -231,6 +231,13 @@ export default function Index() {
   const recorder = useAudioRecorder(RECORDING_OPTIONS);
   const [recording, setRecording] = useState(false);
 
+  // ⚠️ **録音中かどうかの判定は必ずこちらを見る。** state だけだと、
+  // 自動送信のタイマーが「録音を始めたときのレンダー」の値を捕まえてしまい、
+  // 30秒後には `recording === false` のまま止まる（＝**録音が止まらず、
+  // 送信もされない**）。走行中に画面を見ずに復帰できない状態になる。
+  // state の方は画面表示専用。
+  const recordingRef = useRef(false);
+
   // 回答の読み上げ（US-2.02）。URLを差し替えて鳴らすだけなので、
   // プレイヤーは1つを使い回す。
   // ⚠️ 音声は署名付きURLで来る（数分で失効）。届いたらすぐ鳴らす。
@@ -453,7 +460,8 @@ export default function Index() {
    * 押し忘れれば上限まで録り続けて**質問ごと失われる**（src/api/voice.ts）。
    */
   async function startRecording() {
-    if (recording || sending) return;
+    // ref で見る。連打されたときも、再レンダーを待たずに2度目を弾ける。
+    if (recordingRef.current || sending) return;
     if (!apiKey) {
       setAnswer("エラー: APIキーが未設定です（設定画面で入力してください）");
       return;
@@ -469,6 +477,7 @@ export default function Index() {
       await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
       await recorder.prepareToRecordAsync();
       recorder.record();
+      recordingRef.current = true;
       setRecording(true);
       setAnswer(null);
       recordingTimer.current = setTimeout(() => {
@@ -476,14 +485,47 @@ export default function Index() {
         void stopRecordingAndSend();
       }, MAX_RECORDING_MS);
     } catch (e) {
+      recordingRef.current = false;
       setRecording(false);
       setAnswer("録音を開始できませんでした: " + String(e));
     }
   }
 
+  /**
+   * 録音を送らずに捨てる。
+   *
+   * ⚠️ **マイクと音声モードを必ず戻す。** 録音したまま放置すると、
+   * マイクを掴み続けるうえ**音声モードが録音向きのままになり、
+   * 以降の読み上げが鳴らなくなる**（Androidで顕著）。
+   * リセットと画面離脱の両方から呼ぶ。
+   */
+  function discardRecording() {
+    if (recordingTimer.current) {
+      clearTimeout(recordingTimer.current);
+      recordingTimer.current = null;
+    }
+    if (!recordingRef.current) return;
+    recordingRef.current = false;
+    setRecording(false);
+    // 後片付けなので、失敗しても伝える相手がいない（画面を離れている）。
+    void (async () => {
+      try {
+        await recorder.stop();
+        await setAudioModeAsync({
+          allowsRecording: false,
+          playsInSilentMode: true,
+        });
+      } catch (e) {
+        console.warn("failed to discard the recording", e);
+      }
+    })();
+  }
+
   /** 録音を止めて送る。停止と送信を分けない（走行中の操作を1つに保つ）。 */
   async function stopRecordingAndSend() {
-    if (!recording) return;
+    // ⚠️ ref で見る（上記参照）。state を見ると自動送信が素通りする。
+    if (!recordingRef.current) return;
+    recordingRef.current = false;
     if (recordingTimer.current) {
       clearTimeout(recordingTimer.current);
       recordingTimer.current = null;
@@ -627,16 +669,30 @@ export default function Index() {
     conversationStartedAt.current = null;
     // 待っている途中でリセットされたら、その回答はもう要らない。
     pollAbort.current = true;
+    // ⚠️ 録音中のリセットも起こりうる。捨てないとマイクを掴んだままになり、
+    // タイマーが「捨てたはずの会話」に送信してしまう。
+    discardRecording();
+    // 読み上げの途中なら止める（新しい会話に前の回答が被る）。
+    try {
+      player.pause();
+    } catch {
+      // 何も鳴っていなければ失敗しうる。捨ててよい。
+    }
   }
 
   // 画面を離れるときにポーリングを止める（放置すると裏で叩き続ける）。
-  // ⚠️ 録音の自動送信タイマーも一緒に止める。残しておくと、画面を離れた後に
-  // 発火して送信が走る。
+  // ⚠️ **録音も一緒に捨てる。** タイマーを止めるだけでは足りず、
+  // マイクを掴んだまま・音声モードが録音向きのまま残る。
+  //
+  // ⚠️ discardRecording は毎レンダー作り直されるが、依存配列は空のままでよい。
+  // 参照するのはすべて ref で、初回のクロージャでも最新の値を読むため。
+  // （依存に入れると、レンダーのたびに後片付けが走ってしまう）
   useEffect(() => {
     return () => {
       pollAbort.current = true;
-      if (recordingTimer.current) clearTimeout(recordingTimer.current);
+      discardRecording();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (

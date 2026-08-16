@@ -20,7 +20,7 @@ from botocore.exceptions import ClientError
 TABLE_NAME = os.environ.get("TABLE_NAME", "")
 
 # Long enough that a poll can never outlive the record (the app gives up after
-# 80s), short enough that answers naming the rider's location do not linger.
+# 120s), short enough that answers naming the rider's location do not linger.
 TTL_SECONDS = 3600
 
 # When a claim is old enough that its holder cannot still be running, and so may
