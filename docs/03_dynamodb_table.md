@@ -63,19 +63,34 @@ DynamoDB では、RDB のように「エンティティごとにテーブルを�
 |---|---|---|---|
 | `pk` | S | ✅ | `ASK#<requestId>` |
 | `sk` | S | ✅ | `STATUS`（固定） |
-| `status` | S | ✅ | `pending` / `processing` / `done` / `error` |
+| `status` | S | ✅ | `transcribing` / `pending` / `processing` / `done` / `error` |
 | `sessionId` | S | ✅ | 会話ID。回答と一緒にアプリへ返す |
+| `location` | M | | ⚠️ **音声の質問だけ。** `transcribing` の間だけ持つ座標（下記） |
 | `answer` | S | | `done` のときだけ |
+| `audioKey` | S | | 回答音声のS3キー。**合成に失敗すると無い**（回答は返る） |
 | `error` | S | | `error` のときだけ。**利用者に見せる文言**（内部情報は入れない） |
 | `createdAt` | N | ✅ | 作成時刻（UNIX秒） |
 | `claimedAt` | N | | worker が処理を始めた時刻。**取り残しの検出に使う**（下記） |
 | `expiresAt` | N | ✅ | **TTL。`createdAt` + 1時間** |
 
+### ⚠️ 音声の質問だけ `location` を持つ
+
+**テキストの質問は、Lambdaが住所を解決してからレコードを書く**ので、座標を残す必要がない。
+**音声はそれができない** — 文字起こしが終わるまで質問の中身が無く、プロンプトを組めない。
+
+そこで**座標をいったん保存し**、文字起こし完了時（`transcribe-done`）に住所・方位を確定して
+プロンプトを組み、**`location` を削除する**（`docs/01` §7）。
+
+📌 保持されるのは**文字起こしの間だけ**で、TTLは他と同じ1時間。
+
 ### 状態遷移
 
 ```mermaid
 stateDiagram-v2
-    [*] --> pending: ask Lambda が作る
+    [*] --> pending: ask Lambda が作る<br/>（テキスト）
+    [*] --> transcribing: ask-audio Lambda が作る<br/>（音声）
+    transcribing --> pending: 文字起こし完了<br/>（transcribe-done がプロンプトを組む）
+    transcribing --> error: 文字起こし失敗<br/>／無音
     pending --> processing: worker が獲得<br/>（条件付き書き込み）
     processing --> done: 回答が取れた
     processing --> error: AgentCore が失敗
@@ -88,6 +103,11 @@ stateDiagram-v2
         AgentCoreを呼ばずに終わる
     end note
 ```
+
+⚠️ **アプリが知る状態は `pending` / `done` / `error` の3つだけ**（`docs/02`）。
+`transcribing` と `processing` は**内部の区別**なので、`GET /ask/{requestId}` は
+**どちらも `pending` として返す**。⚠️ **そのまま返すとアプリが未知の値として扱い、
+ポーリングを止めてしまう。**
 
 ### ⚠️ `processing` があるのは冪等性のため
 

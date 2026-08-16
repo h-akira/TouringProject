@@ -14,7 +14,7 @@ anything. See docs/03_dynamodb_table.md section 4.
 import json
 from typing import Any
 
-from lib import agent, store
+from lib import agent, speech, store
 
 
 def _process(request_id: str) -> None:
@@ -44,8 +44,13 @@ def _process(request_id: str) -> None:
         store.save_error(request_id, "The agent returned no answer.")
         return
 
-    store.save_answer(request_id, answer)
-    print(f"answered {request_id}: {len(answer)} chars")
+    # Synthesised now rather than when the app asks, so playback does not wait
+    # on Polly. A failure here returns None and the answer is stored without
+    # audio: the rider reads it instead of hearing it (lib/speech.py).
+    audio_key = speech.synthesize(request_id, answer)
+
+    store.save_answer(request_id, answer, audio_key)
+    print(f"answered {request_id}: {len(answer)} chars audio={bool(audio_key)}")
 
 
 def handler(event: dict[str, Any], _context: Any) -> None:

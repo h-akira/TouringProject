@@ -19,9 +19,13 @@ SESSION_ID = "touring-" + "a" * 32
 
 
 @pytest.fixture
-def result():
+def result(monkeypatch):
+    monkeypatch.setenv("AUDIO_BUCKET", "bucket-test")
     module = importlib.import_module("handlers.result")
     importlib.reload(module)
+    module._s3.generate_presigned_url = (
+        lambda _op, Params=None, ExpiresIn=None: f"https://signed/{Params['Key']}"
+    )
     return module
 
 
@@ -133,3 +137,63 @@ def test_read_failure_does_not_leak_details(result):
 
     assert response["statusCode"] == 502
     assert "123456789012" not in response["body"]
+
+
+def test_answer_audio_comes_back_as_a_link(result):
+    # Not the bytes: the text has to arrive without waiting on the download,
+    # and this response is re-sent whenever the rider loses signal.
+    response = _call(
+        result,
+        {
+            "status": "done",
+            "answer": "それは富士山です",
+            "audioKey": "answers/req-1.mp3",
+            "sessionId": SESSION_ID,
+        },
+    )
+    body = json.loads(response["body"])
+
+    assert body["audioUrl"] == "https://signed/answers/req-1.mp3"
+    assert body["answer"] == "それは富士山です"
+
+
+def test_answer_without_audio_is_still_delivered(result):
+    # Synthesis is allowed to fail on its own; the rider reads the answer.
+    response = _call(
+        result,
+        {"status": "done", "answer": "それは富士山です", "sessionId": SESSION_ID},
+    )
+    body = json.loads(response["body"])
+
+    assert body["status"] == "done"
+    assert body["answer"] == "それは富士山です"
+    assert "audioUrl" not in body
+
+
+def test_signing_failure_does_not_fail_the_answer(result):
+    def boom(*_args, **_kwargs):
+        raise RuntimeError("no such bucket")
+
+    result._s3.generate_presigned_url = boom
+    response = _call(
+        result,
+        {
+            "status": "done",
+            "answer": "それは富士山です",
+            "audioKey": "answers/req-1.mp3",
+            "sessionId": SESSION_ID,
+        },
+    )
+    body = json.loads(response["body"])
+
+    assert body["answer"] == "それは富士山です"
+    assert "audioUrl" not in body
+
+
+def test_a_recording_being_transcribed_reads_as_pending(result):
+    # ⚠️ The app knows three statuses. `transcribing` is an internal step, so it
+    # must present as pending or the app would treat it as unknown and stop.
+    response = _call(result, {"status": "transcribing", "sessionId": SESSION_ID})
+    body = json.loads(response["body"])
+
+    assert body["status"] == "pending"

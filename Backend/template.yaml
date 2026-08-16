@@ -69,6 +69,17 @@ Parameters:
       Requests allowed in a momentary spike per API key. Covers a question
       being submitted while a previous poll is still in flight.
 
+  AudioRetentionDays:
+    Type: Number
+    Default: "1"
+    Description: >
+      How long recordings and synthesised answers stay in S3. ⚠️ Both are
+      consumed within a minute - the recording by Transcribe, the answer by one
+      playback - so this is slack for a retry, not retention. Kept short
+      because a recording is the rider's voice and an answer names where they
+      were (docs/01_architecture.md section 7). One day is the minimum a
+      lifecycle rule can express.
+
 Globals:
   Function:
     Timeout: 10
@@ -91,6 +102,11 @@ Resources:
       # /health. Endpoints opt out individually rather than opting in, so a new
       # endpoint is protected by default - forgetting to add auth cannot leave
       # a hole.
+      # ⚠️ Without this, a multipart upload arrives corrupted rather than
+      # missing - API Gateway treats the body as text and mangles the audio,
+      # which looks like a bad recording instead of a configuration mistake.
+      BinaryMediaTypes:
+        - "multipart/form-data"
       Auth:
         ApiKeyRequired: true
         UsagePlan:
@@ -106,6 +122,39 @@ Resources:
           Throttle:
             RateLimit: !Ref ThrottleRate
             BurstLimit: !Ref ThrottleBurst
+
+  # Audio, both directions: the rider's recording on the way in (batch
+  # transcription reads its input from S3, which is why this bucket exists at
+  # all) and the synthesised answer on the way out.
+  AudioBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "s3-trg-${Environment}-audio-${AWS::AccountId}"
+      # Nothing here is ever meant to be public. The app reaches the answer
+      # through a presigned URL, which needs no public access whatsoever.
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      LifecycleConfiguration:
+        Rules:
+          # ⚠️ Recordings are the rider's voice and answers name where they
+          # are, so neither is kept. Everything here is consumed within a
+          # minute; the days are slack, not retention.
+          - Id: DeleteAudioPromptly
+            Status: Enabled
+            ExpirationInDays: !Ref AudioRetentionDays
+          # A failed multipart upload otherwise sits there being billed for
+          # storage nothing can read.
+          - Id: AbortIncompleteUploads
+            Status: Enabled
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 1
 
   # Single table for the whole app - see docs/03_dynamodb_table.md for why one
   # table holds every entity type, and how pk/sk distinguish them.
@@ -199,6 +248,89 @@ Resources:
             Method: post
             # Inherits ApiKeyRequired from the API's Auth block above.
 
+  # The voice counterpart of AskFunction. It cannot queue the question the way
+  # that one does: batch transcription returns before there is a transcript, so
+  # TranscribeDoneFunction picks up where this leaves off.
+  AskAudioFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "lambda-trg-${Environment}-ask-audio"
+      CodeUri: src/
+      Handler: handlers/ask_audio.handler
+      # Uploading a recording and starting a job, no waiting on either.
+      Timeout: 30
+      # Holds the whole recording in memory while parsing the multipart body.
+      MemorySize: 512
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref MainTable
+          QUEUE_URL: !Ref AskQueue
+          AUDIO_BUCKET: !Ref AudioBucket
+      Policies:
+        - S3WritePolicy:
+            BucketName: !Ref AudioBucket
+        - DynamoDBWritePolicy:
+            TableName: !Ref MainTable
+        - Statement:
+            - Effect: Allow
+              Action: transcribe:StartTranscriptionJob
+              # Transcribe jobs have no ARN to scope to before they exist.
+              Resource: "*"
+      Events:
+        AskAudio:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RestApi
+            # ⚠️ /ask-audio, not /ask/audio: the latter collides with
+            # /ask/{requestId}, where "audio" is a valid requestId.
+            Path: /ask-audio
+            Method: post
+            # Inherits ApiKeyRequired from the API's Auth block above.
+
+  # Where the recorded path rejoins the typed one. Runs when Transcribe
+  # finishes, builds the same prompt AskFunction builds, and queues it.
+  TranscribeDoneFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "lambda-trg-${Environment}-transcribe-done"
+      CodeUri: src/
+      Handler: handlers/transcribe_done.handler
+      # Reverse-geocoding happens here for a recorded question, so it needs the
+      # same headroom AskFunction has.
+      Timeout: 30
+      Environment:
+        Variables:
+          GEO_REGION: !Ref AWS::Region
+          TABLE_NAME: !Ref MainTable
+          QUEUE_URL: !Ref AskQueue
+          AUDIO_BUCKET: !Ref AudioBucket
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action: geo-places:ReverseGeocode
+              Resource: "*"
+        - S3ReadPolicy:
+            BucketName: !Ref AudioBucket
+        - DynamoDBCrudPolicy:
+            TableName: !Ref MainTable
+        - SQSSendMessagePolicy:
+            QueueName: !GetAtt AskQueue.QueueName
+      Events:
+        TranscriptionFinished:
+          Type: EventBridgeRule
+          Properties:
+            Pattern:
+              source:
+                - aws.transcribe
+              detail-type:
+                - Transcribe Job State Change
+              detail:
+                # FAILED is subscribed to as well: without it a failed job
+                # leaves the app polling a record nothing will ever move.
+                TranscriptionJobStatus:
+                  - COMPLETED
+                  - FAILED
+
   # Where the waiting actually happens. Invoked from the queue rather than API
   # Gateway, so the agent's 10-25s no longer counts against the 29s ceiling.
   WorkerFunction:
@@ -215,7 +347,17 @@ Resources:
           AGENT_ARN: !Ref AgentRuntimeArn
           AGENT_REGION: !Ref AgentRegion
           TABLE_NAME: !Ref MainTable
+          AUDIO_BUCKET: !Ref AudioBucket
       Policies:
+        # Synthesising the answer as soon as it exists, so playback does not
+        # wait on Polly (lib/speech.py).
+        - Statement:
+            - Effect: Allow
+              Action: polly:SynthesizeSpeech
+              # Polly's voices are not per-account resources to scope to.
+              Resource: "*"
+        - S3WritePolicy:
+            BucketName: !Ref AudioBucket
         # Without this the call comes back as AccessDenied. Scoped to the one
         # runtime; the wildcard suffix covers its /runtime-endpoint/* children,
         # which is what invoke_agent_runtime actually targets.
@@ -246,9 +388,15 @@ Resources:
       Environment:
         Variables:
           TABLE_NAME: !Ref MainTable
+          AUDIO_BUCKET: !Ref AudioBucket
       Policies:
         - DynamoDBReadPolicy:
             TableName: !Ref MainTable
+        # ⚠️ Needed to SIGN the URL, not to fetch the object: a presigned URL
+        # carries the signer's permission, so without read access here the link
+        # this hands back would be signed for an action it cannot perform.
+        - S3ReadPolicy:
+            BucketName: !Ref AudioBucket
       Events:
         Result:
           Type: Api

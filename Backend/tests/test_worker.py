@@ -39,8 +39,9 @@ class _FakeStore:
         self.claimable = False
         return self.record
 
-    def save_answer(self, _request_id, answer):
+    def save_answer(self, _request_id, answer, audio_key=None):
         self.saved_answer = answer
+        self.saved_audio_key = audio_key
 
     def save_error(self, _request_id, message):
         self.saved_error = message
@@ -48,8 +49,16 @@ class _FakeStore:
 
 @pytest.fixture
 def worker():
+    """Import the worker with speech synthesis stubbed out.
+
+    Polly is stubbed by default because these tests are about the agent and the
+    stored answer; the tests that care about audio set their own stub. ⚠️ Note
+    it goes on the module the worker imported, not on lib.speech's internals -
+    patching further in would leave the real client in place.
+    """
     module = importlib.import_module("handlers.worker")
     importlib.reload(module)
+    module.speech.synthesize = lambda _request_id, _text: None
     return module
 
 

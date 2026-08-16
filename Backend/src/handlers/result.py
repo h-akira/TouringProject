@@ -14,14 +14,26 @@ reported as an error instead - the rider gets told, rather than left waiting.
 """
 
 import json
+import os
 import time
-from typing import Any
+from typing import Any, Optional
+
+import boto3
 
 from lib import store
 
 # Past this, a `processing` record has been abandoned: the queue's retries
 # (3 x 180s visibility) are spent, so nothing is coming back for it.
 ABANDONED_AFTER_SECONDS = 900
+
+# Long enough to start playing an answer, short enough that a leaked link is
+# worth little. The app fetches it immediately.
+AUDIO_URL_TTL_SECONDS = 300
+
+AUDIO_BUCKET = os.environ.get("AUDIO_BUCKET", "")
+
+# Created once per container so warm invocations skip client setup.
+_s3 = boto3.client("s3")
 
 
 def _response(status: int, body: dict[str, Any]) -> dict[str, Any]:
@@ -53,14 +65,17 @@ def handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
     session_id = item.get("sessionId", "")
 
     if status == "done":
-        return _response(
-            200,
-            {
-                "status": "done",
-                "answer": item.get("answer", ""),
-                "sessionId": session_id,
-            },
-        )
+        body: dict[str, Any] = {
+            "status": "done",
+            "answer": item.get("answer", ""),
+            "sessionId": session_id,
+        }
+        # Absent when synthesis failed; the answer still stands and the app
+        # reads it from `answer` (docs/02_api_openapi.yaml).
+        audio_url = _audio_url(item.get("audioKey"))
+        if audio_url:
+            body["audioUrl"] = audio_url
+        return _response(200, body)
 
     if status == "error":
         return _response(
@@ -83,6 +98,31 @@ def handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
         )
 
     return _response(200, {"status": "pending", "sessionId": session_id})
+
+
+def _audio_url(audio_key: Any) -> Optional[str]:
+    """Sign a short-lived URL for the answer's audio.
+
+    The link is what the app fetches instead of receiving the bytes inline: the
+    text arrives without waiting on the download, and the polled response stays
+    small enough to re-send when the rider loses signal
+    (docs/01_architecture.md section 7).
+
+    Minutes, not hours: the app plays the answer as soon as it has it, so the
+    link only has to outlive one playback. Returns None on failure - losing the
+    audio is not worth failing the answer over.
+    """
+    if not isinstance(audio_key, str) or not audio_key or not AUDIO_BUCKET:
+        return None
+    try:
+        return _s3.generate_presigned_url(
+            "get_object",
+            Params={"Bucket": AUDIO_BUCKET, "Key": audio_key},
+            ExpiresIn=AUDIO_URL_TTL_SECONDS,
+        )
+    except Exception as error:  # noqa: BLE001 - the answer still stands
+        print(f"failed to sign audio url: {type(error).__name__}: {error}")
+        return None
 
 
 def _is_abandoned(item: dict[str, Any]) -> bool:

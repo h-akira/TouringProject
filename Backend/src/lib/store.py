@@ -60,6 +60,50 @@ def create_pending(request_id: str, session_id: str, prompt: str) -> None:
     )
 
 
+def create_pending_audio(
+    request_id: str, session_id: str, location: dict[str, Any]
+) -> None:
+    """Record a recorded question, before it has been transcribed.
+
+    The typed path stores a finished prompt, because it has one by the time it
+    writes. This path does not: transcription has only just started, and the
+    prompt cannot be built without the transcript. So the position is stored
+    instead, and handlers/transcribe_done.py builds the prompt when the words
+    arrive.
+
+    ⚠️ This is the one record that holds raw coordinates. They are what the
+    address gets resolved from later, and the record expires with everything
+    else (TTL_SECONDS).
+    """
+    now = int(time.time())
+    _table().put_item(
+        Item={
+            **_key(request_id),
+            "status": "transcribing",
+            "sessionId": session_id,
+            "location": location,
+            "createdAt": now,
+            "expiresAt": now + TTL_SECONDS,
+        }
+    )
+
+
+def start_pending(request_id: str, prompt: str) -> None:
+    """Move a transcribed question into the queue-able state.
+
+    Mirrors what create_pending writes for a typed question: once the prompt
+    exists the two paths are indistinguishable, so the worker needs no notion
+    of where the question came from. The coordinates go at the same time - they
+    have served their purpose, and the prompt carries the address instead.
+    """
+    _table().update_item(
+        Key=_key(request_id),
+        UpdateExpression="SET #s = :pending, prompt = :prompt REMOVE #loc",
+        ExpressionAttributeNames={"#s": "status", "#loc": "location"},
+        ExpressionAttributeValues={":pending": "pending", ":prompt": prompt},
+    )
+
+
 def claim(request_id: str) -> Optional[dict[str, Any]]:
     """Take ownership of a question, or return None if someone already has it.
 
@@ -100,12 +144,28 @@ def claim(request_id: str) -> Optional[dict[str, Any]]:
     return result.get("Attributes")
 
 
-def save_answer(request_id: str, answer: str) -> None:
+def save_answer(
+    request_id: str, answer: str, audio_key: Optional[str] = None
+) -> None:
+    """Record the answer, and where its audio landed if there is any.
+
+    `audio_key` is optional because synthesis is allowed to fail without taking
+    the answer with it - the record then holds text alone, and the app reads it
+    out of `answer` (lib/speech.py).
+    """
+    expression = "SET #s = :done, answer = :answer"
+    names = {"#s": "status"}
+    values: dict[str, Any] = {":done": "done", ":answer": answer}
+
+    if audio_key:
+        expression += ", audioKey = :audioKey"
+        values[":audioKey"] = audio_key
+
     _table().update_item(
         Key=_key(request_id),
-        UpdateExpression="SET #s = :done, answer = :answer REMOVE prompt",
-        ExpressionAttributeNames={"#s": "status"},
-        ExpressionAttributeValues={":done": "done", ":answer": answer},
+        UpdateExpression=f"{expression} REMOVE prompt",
+        ExpressionAttributeNames=names,
+        ExpressionAttributeValues=values,
     )
 
 
