@@ -73,7 +73,7 @@ flowchart LR
 | レイヤ | 採用 |
 |---|---|
 | フロント | React Native (Expo) — 既存のJS/TS知識を活かせる |
-| ウェイクワード | Picovoice Porcupine（オンデバイス） |
+| ハンズフリー起動 | **Android のアシスタントとして登録**（`VoiceInteractionService`）。インカムのボタンで起動する |
 | バックエンド | API Gateway + Lambda (Python)。IaCは SAM |
 | AI | Amazon Bedrock AgentCore（会話継続・Web検索） |
 | STT / TTS | Amazon Transcribe / Polly |
@@ -89,6 +89,7 @@ flowchart LR
 
 残るは**ハンズフリー起動**（US-2.04）。⚠️ **本プロジェクト唯一の技術的リスク**で、
 ここが成立しなければ「走行中に使える」という前提そのものが崩れる。
+**方式は調査で決着済み**（[pre-research/handsfree/](pre-research/handsfree/)）で、これから実装する。
 
 進捗と残作業は [`.memory/`](.memory/)（開発中の覚え書き）にある。
 

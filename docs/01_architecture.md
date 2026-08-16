@@ -56,7 +56,7 @@ flowchart LR
 
 | 処理 | 担当 | 使うもの |
 |---|---|---|
-| ウェイクワード検知 | アプリ（オンデバイス） | Porcupine |
+| ハンズフリー起動 | アプリ（Androidのアシスタント） | `VoiceInteractionService`（インカムのボタンで起動） |
 | 位置の取得（履歴を保持） | アプリ | expo-location |
 | 録音 | アプリ | expo-av 等 |
 | 音声 → テキスト（STT） | **AWS** | Lambda → Amazon Transcribe（§7） |
