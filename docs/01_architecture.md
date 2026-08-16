@@ -189,11 +189,16 @@ Web検索（US-1.04）は AgentCore Gateway の**組み込みコネクタ**で�
 
 ```mermaid
 flowchart LR
-    App["アプリ<br/>録音"] -->|"音声"| GW["API Gateway<br/>POST /ask/audio"]
+    App["アプリ<br/>録音"] -->|"① 音声"| GW["API Gateway<br/>POST /ask/audio"]
     GW --> L["ask Lambda<br/>⚠️ ここで弾く"]
-    L --> S3[("S3<br/>音声")]
+    L --> S3[("S3")]
     S3 --> T["Transcribe<br/>バッチ"]
-    T --> Q["既存の非同期経路<br/>SQS → worker"]
+    T --> W["既存の非同期経路<br/>SQS → worker → AgentCore"]
+    W --> P["Polly"]
+    P --> S3
+    App -->|"② ポーリング"| R["result Lambda"]
+    R -->|"テキスト + 音声URL"| App
+    App -->|"③ 音声を取得"| S3
 ```
 
 ⚠️ **Transcribe は「バッチ」を使う**（[`StartTranscriptionJob`](https://docs.aws.amazon.com/transcribe/latest/dg/how-input.html)）。
@@ -204,18 +209,42 @@ flowchart LR
 |---|---|
 | 受け口 | **`POST /ask/audio`**（新設）。既存の `POST /ask`（テキスト）は**変えない** |
 | S3への配置 | **Lambdaが受けてPUTする。** バッチの入力は**S3必須**のため |
-| 合流先 | **既存の非同期経路**（SQS → worker → DynamoDB）。回答の取得も `GET /ask/{requestId}` のまま |
+| 合流先 | **既存の非同期経路**（SQS → worker → DynamoDB）。ポーリングも `GET /ask/{requestId}` のまま |
 
 📌 **アプリにAWS認証情報は要らない。** APIキーだけで完結する（§8）。
+
+### 回答の音声は署名付きURLで渡す
+
+**ポーリングの応答には、テキストと一緒に「音声のURL」を入れる。** 音声そのものは載せない。
+
+- ✅ **テキストが先に届く。** 音声の生成を待たずに画面へ出せる
+- ✅ **レスポンスが軽い。** ⚠️ 走行中は電波が切れて**再試行が起きる**ので、
+  ポーリングの応答は小さく保つ
+- ✅ 音声は**S3から直接**取得するため、API Gateway / Lambda のサイズ上限と無関係
+
+| | |
+|---|---|
+| 生成 | **worker が回答生成の直後に Polly を呼び、S3に置く**（要求されてから作ると初回再生が遅れる） |
+| URL | **result Lambda が署名付きURLを発行する**（有効期限は数分） |
+| 保存 | ⚠️ **S3のライフサイクルで数日後に自動削除**（残す理由がない。§9） |
+
+### 録音形式は M4A（AAC）
+
+⚠️ **Transcribeの推奨は FLAC / WAV(PCM 16bit) だが、Androidの録音APIはどちらも直接出せない**
+（`expo-audio` の `AndroidOutputFormat` に該当する値がない）。
+
+**両者が重なるのが M4A**（`outputFormat: 'mpeg4'` + `audioEncoder: 'aac'`）。
+`expo-audio` の `HIGH_QUALITY` プリセットの既定でもあるため、**変換を挟まずに済む。**
+
+📌 音声認識には十分な品質だが、[pre-research/voice/](../pre-research/voice/) の実測（5問中4問正解）は
+**WAV/PCMで得た値**なので、**M4Aでの精度は実装時に確認する**（§12）。
 
 **波及する制約**:
 
 - ⚠️ **API Gateway のペイロード上限は 10MB。** 質問1つは数秒〜十数秒なので十分
-  （16kHz/16bit WAV で10秒 ≒ 320KB。base64で約1.33倍になる点を見ても桁が違う）。
-  **上限が低いこと自体が防御**として働く。
+  （M4A/AACなら10秒で数十KB程度）。**上限が低いこと自体が防御**として働く。
 - ⚠️ **バッチにはジョブキューイングがあり、所要時間が保証されない。**
   同時実行の上限に達したときの話なので、単一利用者では顕在化しない見込み（未実測）。
-- 録音形式は**バッチ対応のもの**から選ぶ（WAV/FLAC/M4A 等。推奨は FLAC / WAV PCM 16bit）。
 
 ## 8. 認証：APIキー方式（アプリ画面から入力）
 
@@ -318,8 +347,8 @@ flowchart LR
 
 ## 12. 未決事項
 
-- [ ] **録音形式の確定**（Expoの録音APIが出せる形式と、バッチTranscribeの対応形式の突き合わせ）
-- [ ] **音声を含めた応答時間**（STTのぶんがどれだけ乗るか未実測。§7）
+- [ ] **M4Aでの認識精度**（実測はWAV/PCMで得た値。§7）
+- [ ] **音声を含めた応答時間**（STT/TTSのぶんがどれだけ乗るか未実測。§7）
 - [ ] **Usage Plan の閾値の妥当性**（いまの値は仮。実際の使い方を測って詰める）
 - [ ] Budgets の月額上限と、予算超過時の自動遮断の実装方式
 - [ ] エラー時の挙動（STT失敗・タイムアウト・利用停止中に何を音声で返すか）
