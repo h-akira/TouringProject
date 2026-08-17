@@ -28,17 +28,20 @@
 
 ## 動かす
 
-**アプリは実機Android + Expo Go**、バックエンドはAWSにデプロイして使う。
+**アプリは実機Android + Expo Development Build**、バックエンドはAWSにデプロイして使う。
+
+⚠️ **Expo Go では動かない**（US-2.04のハンズフリー起動にネイティブコードが要るため。
+[adr/006](adr/006_handsfree_launch_mechanism.md)）。初回はAndroid Studio等の
+セットアップとネイティブビルドが要る。**手順・トラブルシュートは [App/README.md](App/README.md)**
+（初回セットアップ・APIキーの取得・開発の中断/再開・つまずいたとき）。
 
 ```sh
 cd App
 npm install            # API の型は postinstall で自動生成される
 cp .env.example .env   # APIのURLを書く（⚠️ APIキーはここに書かない）
-npx expo start         # QRコードをスマホの Expo Go で読む
+npx expo run:android    # 初回はビルドして実機にインストール
+npx expo start          # 2回目以降はこれだけで実機のアプリから繋がる
 ```
-
-**APIキーはアプリの設定画面から入れる**（`expo-secure-store` に保管）。
-→ **手順の詳細は [App/README.md](App/README.md)**（キーの取得方法・つまずいたとき）。
 
 | やりたいこと | 見るところ |
 |---|---|
@@ -73,7 +76,7 @@ flowchart LR
 | レイヤ | 採用 |
 |---|---|
 | フロント | React Native (Expo) — 既存のJS/TS知識を活かせる |
-| ハンズフリー起動 | **Android のアシスタントとして登録**（`VoiceInteractionService`）。インカムのボタンで起動する |
+| ハンズフリー起動 | **`android.intent.action.VOICE_COMMAND` の intent-filter**（[adr/006](adr/006_handsfree_launch_mechanism.md)）。インカムのボタンで起動する |
 | バックエンド | API Gateway + Lambda (Python)。IaCは SAM |
 | AI | Amazon Bedrock AgentCore（会話継続・Web検索） |
 | STT / TTS | Amazon Transcribe / Polly |

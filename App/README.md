@@ -1,14 +1,39 @@
 # App/ — モバイルアプリ（React Native / Expo）
 
-ツーリングAI会話アプリのクライアント。**実機Android + Expo Go** で動かす。
+ツーリングAI会話アプリのクライアント。**実機Android + Expo Development Build** で動かす。
 
-設計の全体像は [docs/01_architecture.md](../docs/01_architecture.md)、
-Expoの基礎は [learning/03](../learning/03_dev_environment_setup.md)。
+設計の全体像は [docs/01_architecture.md](../docs/01_architecture.md)。
 
 > ⚠️ **このアプリは"薄いクライアント"に徹する。** 位置を取る・AWSに送る・回答を出す、まで。
 > 賢い処理（住所の解決・方位の算出・回答の生成）は**すべてAWS側**にある。
 
-## 動かす（実機Android + Expo Go）
+> ⚠️ **US-2.04（ハンズフリー起動）でネイティブコードが必要になり、
+> Expo Go から Development Build に移行した**（[adr/006](../adr/006_handsfree_launch_mechanism.md)）。
+> **Expo Goでは動かない**（`VOICE_COMMAND` のintent-filterはネイティブのマニフェストにあり、
+> Expo Goのランタイムには反映されない）。
+
+## 動かす（実機Android + Development Build）
+
+### 0. Android開発環境（初回だけ）
+
+**Android Studio / Android SDK / JDK 17** が要る。
+
+```sh
+brew install --cask zulu@17
+brew install --cask android-studio   # 初回起動でStandardセットアップ
+```
+
+`~/.zshrc` 等に環境変数を追加:
+
+```sh
+export JAVA_HOME=/Library/Java/JavaVirtualMachines/zulu-17.jdk/Contents/Home
+export ANDROID_HOME=$HOME/Library/Android/sdk
+export PATH=$PATH:$ANDROID_HOME/emulator:$ANDROID_HOME/platform-tools
+```
+
+`adb --version` が通れば準備完了。実機をUSB接続し、
+`設定 > 開発者向けオプション > USBデバッグ` を有効化してから
+`adb devices` で認識されることを確認する。
 
 ### 1. 準備（初回だけ）
 
@@ -17,6 +42,17 @@ cd App
 npm install          # postinstall で API の型が自動生成される
 cp .env.example .env # ← APIのURLを書く（下記）
 ```
+
+**実機をUSB接続し `adb devices` で認識されることを確認**したら、初回だけビルド:
+
+```sh
+npx expo prebuild --platform android   # android/ を生成
+npx expo run:android                   # ビルドして実機にインストール
+```
+
+⚠️ **`android/` は生成物なので `.gitignore` 済み。** 手で編集しても
+`prebuild --clean` で消える。ネイティブ側の変更は `App/plugins/withVoiceInteraction.js`
+（Expo config plugin）に書く。
 
 **`.env` に書くのはURLだけ:**
 
@@ -35,14 +71,18 @@ AWS_PROFILE=touring aws cloudformation describe-stacks \
   --query "Stacks[0].Outputs[?OutputKey=='ApiBaseUrl'].OutputValue" --output text
 ```
 
-### 2. 起動
+### 2. 起動（2回目以降。実機に既にインストール済みの前提）
 
 ```sh
 cd App
 npx expo start
 ```
 
-**QRコードが出るので、スマホの Expo Go で読み取る。**
+**実機のアプリ（アイコン名「app」）を直接開くと、開発サーバーに自動で繋がる。**
+QRコードやExpo Goは使わない。
+
+⚠️ **`npx expo start` は対話型TUI。** AIエージェントにバックグラウンド実行させず、
+自分のターミナルで起動すること。
 
 ⚠️ **スマホとMacが同じWi-Fiにいること**（Metroバンドラに繋ぐため）。
 📌 **API自体はモバイル回線でも叩ける**（APIキー認証なのでIPに依存しない）。
@@ -90,11 +130,36 @@ AWS_PROFILE=touring aws apigateway get-api-key \
 > 📌 **進行方位（矢印）は走らないと出ない。** 停車中・転回直後は「まだ出せません」が正常
 > （5m以上動いた直近の点が必要）。詳細は [docs/01b](../docs/01b_heading.md)。
 
+## ネイティブコードを変更したら再ビルドが要る
+
+JS/TS だけの変更は `npx expo start` を起動していればそのまま反映される。
+**`app.json` の `plugins`/`permissions`、`App/plugins/` 配下、`android/` を直接触るような変更は
+再ビルドが必要**:
+
+```sh
+npx expo prebuild --platform android --clean   # android/ を作り直す
+npx expo run:android                           # ビルドしてインストール
+```
+
+⚠️ **`android/` は生成物。** 直接編集しても `prebuild --clean` で消える。
+
 ## ⚠️ 変更したらバージョンを上げる
 
 **`app.json` の `version` を必ず上げる。** 画面左上に表示され、
-**更新が反映されたかの判別に使う**（Expo Go はキャッシュが残るため）。
+**更新が反映されたかの判別に使う**（キャッシュが残ることがあるため）。
 上げ忘れると「直したのに変わらない」の原因が分からなくなる。
+
+## 開発を中断・再開するとき
+
+- **中断するとき**: 特別な後片付けは不要。`npx expo start` を `Ctrl+C` で止めるだけ。
+  実機のアプリはそのままでよい（次回 `npx expo start` すれば自動で繋がる）。
+- **再開するとき**:
+  1. 実機をUSB接続（`adb devices` で認識確認。**インカムのボタン試験は有線接続不要**、
+     Wi-Fi経由の開発サーバー接続だけ繋がっていればよい）
+  2. `cd App && npx expo start`
+  3. 実機のアプリ（アイコン名「app」）を開く。開発サーバーに自動接続される
+  4. しばらく間が空いていた場合、`npm install`（依存の変更を取り込む）と
+     `npx expo run:android`（ネイティブ側の変更を取り込む）を念のため実行するとよい
 
 ## 困ったとき
 
@@ -106,8 +171,9 @@ AWS_PROFILE=touring aws apigateway get-api-key \
 | **回答は出るが読み上げない** | 音声合成の失敗。⚠️ **異常ではない**（回答は画面に出ている） |
 | **聞き取りが違う** | 地名の同音異義（「柳井」→「屋内」等）。⚠️ **走行中の風切り音にも弱い** |
 | **「API URL が未設定」** | `.env` が無い/`EXPO_PUBLIC_API_BASE_URL` が空。⚠️ **`.env` を変えたら `expo start` を再起動** |
-| QRを読んでも繋がらない | 同じWi-Fiにいない。`--tunnel` を試す |
-| 直したのに変わらない | Expo Go のキャッシュ。`version` を上げたか確認し、`npx expo start -c` |
+| 実機のアプリを開くと「There was a problem loading the project」 | 開発サーバー（`npx expo start`）が起動していないか、繋がっていない。起動し直して実機のアプリを開き直す |
+| 実機のアプリが起動直後に強制終了する | `NoClassDefFoundError` の場合は依存の重複が疑わしい。`npx expo-doctor` で確認 |
+| 直したのに変わらない | `version` を上げたか確認。ネイティブ側の変更なら `npx expo run:android` で再ビルドしたか確認 |
 
 ## 構成
 

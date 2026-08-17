@@ -9,6 +9,6 @@ Do not follow docs for a newer SDK: APIs that read as current there may not exis
 code (`android.intent.action.VOICE_COMMAND` intent-filter, see `adr/006`). The app is
 tested on a real Android device running the installed Development Build
 (`com.touringproject.app`), connected to `npx expo start`. Native changes require
-`npx expo run:android` to rebuild — see `learning/10_expo_development_build.md`.
+`npx expo run:android` to rebuild — see `README.md` for the exact commands.
 
 Check `package.json` if in doubt — it is the authority on the version.

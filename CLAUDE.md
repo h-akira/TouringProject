@@ -122,7 +122,8 @@ ADRは**その時点で何を知った上でどう判断したか**の記録な�
   動作確認は **実機Android + Development Build**: `cd App && npx expo start` で
   Metro（開発サーバー）を起動し、実機にインストール済みのアプリ（`com.touringproject.app`）を開く。
   ⚠️ **`expo start` は対話型TUIなのでAIがバックグラウンド実行しない。**
-  ユーザー自身のターミナルで起動してもらう。手順は [learning/03](learning/03_dev_environment_setup.md)・
+  ユーザー自身のターミナルで起動してもらう。**手順は [App/README.md](App/README.md)**
+  （初回セットアップ・中断/再開・つまずいたとき）。技術的な背景を学ぶなら
   [learning/09](learning/09_android_dev_environment.md)・[learning/10](learning/10_expo_development_build.md)。
 - **ネイティブコード（`android/`）を変更したら `npx expo run:android` で再ビルド**が要る
   （JS/TSだけの変更は再起動不要でMetro経由で反映される）。
