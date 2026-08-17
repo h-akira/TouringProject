@@ -32,7 +32,9 @@
 - [x] JSX / コンポーネント / 状態管理（React未経験部分の補完）
 - [x] 位置情報の扱い方（権限フロー / expo-location）
 - [x] API連携（fetch でバックエンドと通信 / 環境変数）
-- [ ] ネイティブモジュールとブリッジの概念（なぜウェイクワードでネイティブに踏み込むのか）
+- [x] Android開発環境の構築（JDK・Android Studio・SDK）
+- [x] Expo Development Build と Config Plugin（なぜ・どうやってネイティブコードに踏み込むか）
+- [x] Android の Intent 解決の仕組み（intent-filter・preferred activity）
 - [ ] Android の権限・バックグラウンド動作・Foreground Service の基礎
 - [ ] センサー（方位・進行方向の算出）
 
@@ -55,6 +57,9 @@
 - [06. 位置情報の扱い方（権限フロー / expo-location）](./06_location_permissions.md)
 - [07. API連携（fetch でバックエンドと通信 / 環境変数）](./07_api_integration.md)
 - [08. セーフエリア（画面端のバーに隠れない配置）](./08_safe_area.md)
+- [09. Android開発環境の構築（JDK・Android Studio・SDK）](./09_android_dev_environment.md)
+- [10. Expo Development Build と Config Plugin](./10_expo_development_build.md)
+- [11. Android の Intent 解決の仕組み](./11_android_intent_resolution.md)
 
 ### AI（51〜）
 

@@ -116,17 +116,22 @@ ADRは**その時点で何を知った上でどう判断したか**の記録な�
 - 「複数ユーザー対応」のような**実装側の都合はストーリーではない**（「やらないこと」へ）。
 - **現在の姿**を示す。変更履歴的な記述は残さない（経緯はコミットメッセージへ）。
 - 本文は要件に絞り、**理由・実装方針・実測データは末尾の「補足A/B…」へ**。
-## 開発環境（Mac + 実機Android + Expo Go）
+## 開発環境（Mac + 実機Android + Expo Development Build）
 
-- 動作確認は **実機Android + Expo Go**（`cd App && npx expo start` → QRを読む）。
+- ⚠️ **US-2.04の実装（Development Build）を機に、Expo Go から移行済み。**
+  動作確認は **実機Android + Development Build**: `cd App && npx expo start` で
+  Metro（開発サーバー）を起動し、実機にインストール済みのアプリ（`com.touringproject.app`）を開く。
   ⚠️ **`expo start` は対話型TUIなのでAIがバックグラウンド実行しない。**
-  ユーザー自身のターミナルで起動してもらう。手順は [learning/03](learning/03_dev_environment_setup.md)。
-- **ハンズフリー起動（US-2.04）の段階で Expo Development Build に移行**する
-  （そこで初めて Android SDK 等に踏み込む）。⚠️ **既製のExpoプラグインは無く、
-  `VoiceInteractionService` を Kotlin で書くことになる**（`pre-research/handsfree/`）。
+  ユーザー自身のターミナルで起動してもらう。手順は [learning/03](learning/03_dev_environment_setup.md)・
+  [learning/09](learning/09_android_dev_environment.md)・[learning/10](learning/10_expo_development_build.md)。
+- **ネイティブコード（`android/`）を変更したら `npx expo run:android` で再ビルド**が要る
+  （JS/TSだけの変更は再起動不要でMetro経由で反映される）。
+  ハンズフリー起動（US-2.04）は `App/plugins/withVoiceInteraction.js` という
+  Expo config plugin で実装している（`VoiceInteractionService` ではなく、
+  `android.intent.action.VOICE_COMMAND` の intent-filter。[adr/006](adr/006_handsfree_launch_mechanism.md)）。
 - ⚠️ **`App/` を変更したら `App/app.json` の `version` を必ず上げる。**
   実機の画面左上に表示され、**更新が反映されたかの判別に使う**
-  （Expo Go はキャッシュが残るため）。**上げ忘れると判別できない。**
+  （キャッシュが残ることがあるため）。**上げ忘れると判別できない。**
 
 ## AWS / バックエンド開発
 

@@ -69,6 +69,9 @@ showNone="true"
 サードパーティを既定にしても奪われるのはボタン長押しの経路だけ」という記述もある**が、
 ⚠️ **§4 の実測はこれと矛盾する**（少なくともマップの音声入力については成り立たない）。
 
+> ⚠️ **この節で参照したガイドは車載（AAOS）専用だった。** `recognitionService` を
+> 省略できるかのような記述は一般Androidには当てはまらない。詳細は §9。
+
 ## 4. ⚠️ 実測：既定を Alexa にすると、マップの音声入力が死ぬ
 
 | 既定のアシスタント | マップの**音声入力**（指示する） | マップの**音声案内**（読み上げ） |
@@ -222,15 +225,48 @@ showNone="true"
 ⚠️ **RN バインディングは前面での利用が前提**（`start()` / `stop()` のみ）。
 **背景で回すならネイティブ側にサービスを書くことになる。**
 
-## 9. 未確認のまま残っているもの
+## 9. ⚠️ 実装で判明：`recognitionService` は候補一覧に出るための必須項目
+
+**「デジタルアシスタント」の設定画面の候補一覧に、自アプリが出なかった。**
+⚠️ **エラーは出ない。静かに候補から外れるだけ。**
+
+原因は [AOSPの `AssistantRoleBehavior.java`](https://github.com/GrapheneOS/platform_packages_modules_Permission/blob/17/PermissionController/role-controller/java/com/android/role/controller/behavior/AssistantRoleBehavior.java)
+の `isAssistantVoiceInteractionService()`:
+
+```java
+if (sessionService == null || recognitionService == null || !supportsAssist) {
+    return false;
+}
+```
+
+**`res/xml` のメタデータに `sessionService`・`recognitionService`・`supportsAssist` の
+3点がすべて揃っていないと、候補として扱われない。**
+
+📌 **これは §3 の記述を訂正する。** 当時参照した
+[AOSPの車載（AAOS）向けガイド](https://source.android.com/docs/automotive/voice/voice_interaction_guide)
+は対象が車載専用で、一般Androidには当てはまらなかった
+（`recognitionService` が省略可能という示唆は誤り）。
+
+**`recognitionService` には自前で音声認識をする必要はなく、既存の
+`RecognitionService` 実装（コンポーネント名）を指すだけでよい。**
+実機（Pixel 8a）で確認できた値:
+
+```
+com.google.android.googlequicksearchbox/com.google.android.voicesearch.serviceapi.GoogleRecognitionService
+```
+
+（`adb shell dumpsys package com.google.android.googlequicksearchbox` で確認。
+`android.speech.RecognitionService` のintent-filterを持つ）
+
+## 10. 未確認のまま残っているもの
 
 **方式Bで進めるうえで:**
 
-- [ ] Expo Development Build で `VoiceInteractionService` を組み込む具体的な手順
 - [ ] 再インストールで既定のアシスタントが外れるか
       （[報告あり](https://github.com/anthropics/claude-code/issues/41696)）
 - [ ] `android.intent.action.VOICE_COMMAND` の正式な仕様（公式リファレンスで裏を取れていない）
 - [ ] 「Hey Google」単体（ナビ外）が残るか
+- [ ] Google純正アプリが無い端末（≠Pixel等）でも `recognitionService` の値が同じか
 
 **📌 方式Cを再検討することになった場合（いまは不要）:**
 

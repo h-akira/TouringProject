@@ -1,5 +1,11 @@
 # 方式の検討と却下理由（US-2.04）
 
+> ⚠️ **実装時に一部が覆った。[adr/006](../../adr/006_handsfree_launch_mechanism.md) を読むこと。**
+> 「方式B」の**代償（Google Assistantを明け渡す）は今も有効**だが、
+> **実装は `VoiceInteractionService` ではなく `VOICE_COMMAND` のintent-filター**になった
+> （インカムのボタンはBluetoothスタックが `VOICE_COMMAND` を送る別経路と実機で判明）。
+> 以下は 2026-08-16 時点の判断の記録。
+>
 > 結論は [README.md](README.md)。**実測データと一次情報の引用は [FINDINGS.md](FINDINGS.md)。**
 > ここは**「なぜその方式を選んだ／捨てたか」**だけを書く。
 

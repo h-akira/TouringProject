@@ -11,6 +11,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Location from "expo-location";
 import Constants from "expo-constants";
 import { router, useFocusEffect } from "expo-router";
+import { useURL, parse as parseUrl } from "expo-linking";
 import {
   useAudioRecorder,
   useAudioPlayer,
@@ -246,6 +247,18 @@ export default function Index() {
   // 録音の押し忘れを止めるためのタイマー。走行中は画面を見ないので、
   // 上限に達したら自動で送信に回す。
   const recordingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ハンズフリー起動（US-2.04）。インカムのボタンを押すと、Bluetoothスタックが
+  // 送る ACTION_VOICE_COMMAND を MainActivity（ネイティブ側）が deep link に
+  // 読み替えてアプリを開く（`adr/006`）。⚠️ **「起動経路をつなぐだけ」**の
+  // 方針どおり、ここでは既存の録音開始処理を呼ぶだけにする（`pre-research/handsfree/`）。
+  const launchUrl = useURL();
+  // ⚠️ **直近に処理したURLを覚えておく**（真偽値ではなく文字列で持つ）。
+  // ネイティブ側はボタンを押すたびに異なるURL（`autoRecord=<時刻>`）を送るので、
+  // 「このURLはもう処理した」を文字列比較で判定すれば、2回目以降のボタン押下でも
+  // 正しく再発火する。apiKey未ロード等で開始できなかった場合は空のままにし、
+  // 次のレンダーで再挑戦できるようにする。
+  const autoRecordHandledUrl = useRef<string | null>(null);
 
   // 設定画面から戻ってきたときに読み直す。
   // ⚠️ **useEffect(…, []) では足りない。** expo-router は戻ってきた画面を
@@ -490,6 +503,21 @@ export default function Index() {
       setAnswer("録音を開始できませんでした: " + String(e));
     }
   }
+
+  // ハンズフリー起動を受けて自動で録音を始める。
+  // ⚠️ **位置情報とAPIキーの両方が揃うのを待つ。** どちらか欠けたまま
+  // startRecording を呼んでもエラーで無音に終わるだけ（画面を見ない前提なので
+  // 気づけない）。coords・apiKey は非同期に届くので、揃うまで「未処理」の
+  // ままにしておき、揃った時点のレンダーで自然に再評価させる
+  // （`autoRecordHandledUrl` を先に確定させない）。
+  useEffect(() => {
+    if (!launchUrl || !coords || !apiKey) return;
+    if (autoRecordHandledUrl.current === launchUrl) return;
+    if (!parseUrl(launchUrl).queryParams?.autoRecord) return;
+    autoRecordHandledUrl.current = launchUrl;
+    void startRecording();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [launchUrl, coords, apiKey]);
 
   /**
    * 録音を送らずに捨てる。

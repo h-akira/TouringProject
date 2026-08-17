@@ -3,6 +3,10 @@
 > 対象: 本プロジェクトを手元で動かすための最初のセットアップ手順。
 > 前提環境: macOS / Homebrew が使えること / Node.js が入っていること。
 > 確認方法: **実機のAndroid ＋ Expo Go アプリ**でプレビューする（Android Studio不要の最小構成）。
+>
+> ⚠️ **これは「最初の段階」の手順。** US-2.04（ハンズフリー起動）でネイティブコードが必要になり、
+> **現在は Expo Development Build に移行済み**（[learning/09](09_android_dev_environment.md)・
+> [learning/10](10_expo_development_build.md)）。Expo Go だけで完結する構成を学ぶ教材として残す。
 
 ## 0. 全体像
 
