@@ -35,6 +35,19 @@ export PATH=$PATH:$ANDROID_HOME/emulator:$ANDROID_HOME/platform-tools
 `設定 > 開発者向けオプション > USBデバッグ` を有効化してから
 `adb devices` で認識されることを確認する。
 
+> ⚠️ **AIにビルドさせるときは `ANDROID_HOME` を明示的に渡すこと。**
+> `~/.zshrc` は**対話シェルでしか読まれない**ので、AIが実行する
+> 非対話シェルには環境変数が引き継がれず、Gradleが
+> `SDK location not found` で失敗する。
+>
+> ```sh
+> ANDROID_HOME="$HOME/Library/Android/sdk" npx expo run:android
+> ```
+>
+> 📌 `android/local.properties` に `sdk.dir` を書く方法もあるが、
+> `android/` ごと `.gitignore` 済みで `prebuild` のたびに消えるため、
+> 環境変数を渡す方が確実。
+
 ### 1. 準備（初回だけ）
 
 ```sh

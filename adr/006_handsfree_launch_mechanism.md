@@ -3,7 +3,7 @@
 - **日付**: 2026-08-17
 - **ステータス**: 採用（一部改訂）
 - **現在の設計**: 実装は `App/plugins/withVoiceInteraction.js`。詳細な実測は
-  [pre-research/handsfree/FINDINGS.md](../pre-research/handsfree/FINDINGS.md) §9〜11
+  [pre-research/handsfree/FINDINGS.md](../pre-research/handsfree/FINDINGS.md) §9
 
 ## 背景
 
@@ -95,7 +95,9 @@ Alexaが候補としてあっても常に無視されていた
 - 📌 **`recognitionService` の実測値**（Google Recognition Serviceのコンポーネント名）は
   今回不要になったが、`VoiceInteractionService` を将来また使う場面があれば
   [FINDINGS.md](../pre-research/handsfree/FINDINGS.md) §9 に記録が残っている。
-- ⚠️ **積み残し: 録音の終了はまだハンズフリーでない。**
-  起動は自動化できたが、話し終えたら画面のボタンを押す必要がある
-  （30秒の自動送信はあるが待つには長い）。無音検知（VAD）が次の候補
-  （`.memory/issues.md` 参照）。
+- 📌 **録音の終了は無音検知（VAD）で解決した**（2026-08-18）。
+  起動と対になる「終了」も画面操作が要らなくなり、US-2.04は実装として一巡した。
+  騒音でマイクが埋まった場合は**送らずに端末内蔵TTSで知らせる**
+  （⚠️ Pollyは使わない。通信できない場面でこそ鳴らしたいため）。
+  ⚠️ **ただし閾値が走行中に成立するかは未検証**
+  （[FINDINGS.md](../pre-research/handsfree/FINDINGS.md) §10〜11）。

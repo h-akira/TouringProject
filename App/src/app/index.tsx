@@ -19,12 +19,23 @@ import {
   setAudioModeAsync,
 } from "expo-audio";
 import { loadApiKey, API_KEY_HEADER } from "@/api/apiKey";
+import * as Speech from "expo-speech";
 import {
   RECORDING_OPTIONS,
-  MAX_RECORDING_MS,
+  METERING_INTERVAL_MS,
+  METERING_WARMUP_MS,
+  SUSTAINED_SILENCE_MS,
+  isSilent,
+  shouldStopForSilence,
+  shouldDiscardAsNoise,
   sendVoiceQuestion,
   type VoiceLocation,
 } from "@/api/voice";
+import {
+  DEFAULT_VAD_SETTINGS,
+  loadVadSettings,
+  type VadSettings,
+} from "@/api/vadSettings";
 import type {
   AskRequest,
   AskAcceptedResponse,
@@ -248,6 +259,40 @@ export default function Index() {
   // 上限に達したら自動で送信に回す。
   const recordingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // 無音検知（VAD）。話し終えたら自動で録音を止めて送るための一式。
+  // ⚠️ **これが US-2.04 の「終了側」。** 起動はインカムのボタンで自動化できたが、
+  // 停止が画面操作のままでは走行中に使えない（手が塞がっていて画面も見ない）。
+  const silenceTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  // 連続した無音が始まった時刻。声が乗った時点で null に戻す（＝計り直し）。
+  // ⚠️ **録音開始時刻は ref に持たない**（猶予の判定はループ内のクロージャが
+  // 持つ `startedAt` で足りる。二重に持つと必ず片方がずれる）。
+  const silentSince = useRef<number | null>(null);
+  // この録音で一度でも声が乗ったか。⚠️ **これが無いと、話し始めが遅れただけで
+  // 空の録音が送られる**（src/api/voice.ts の shouldStopForSilence 参照）。
+  const hasSpoken = useRef(false);
+  // この録音で一度でも無音になったか。⚠️ **騒音の検知に使う。**
+  // 一度も静かにならないまま上限に達したら、環境音が閾値を超え続けている
+  // ＝人の声を拾えていないので送らない（src/api/voice.ts の
+  // shouldDiscardAsNoise）。⚠️ hasSpoken では区別できない（騒音でも真になる）。
+  const everSilent = useRef(false);
+  // 直近の音量。上限に達した時点の値を判定に使うので ref で持つ。
+  const lastMetering = useRef<number | undefined>(undefined);
+  // 録音中に見えた音量の範囲。⚠️ **実機で挙動を追うための記録**
+  // （「無音と判定された瞬間があったか」を後から確かめる材料）。
+  const minMeteringSeen = useRef<number | undefined>(undefined);
+  const maxMeteringSeen = useRef<number | undefined>(undefined);
+
+  // 画面に出す音量（dBFS）。⚠️ **閾値を実走行で詰めるための表示**で、
+  // 走行中に見るものではない（停車中に値の出方を確かめる用）。
+  const [meterDb, setMeterDb] = useState<number | null>(null);
+
+  // 無音検知の閾値（設定画面で変えられる。src/api/vadSettings.ts）。
+  // ⚠️ **ref で持つ。** 判定は setInterval の中で走るので、state だけだと
+  // 「録音を始めたときのレンダー」の値をクロージャが captured したままになり、
+  // 設定を変えても次の録音まで反映されない。表示用は下の state を使う。
+  const vadRef = useRef<VadSettings>(DEFAULT_VAD_SETTINGS);
+  const [vad, setVad] = useState<VadSettings>(DEFAULT_VAD_SETTINGS);
+
   // ハンズフリー起動（US-2.04）。インカムのボタンを押すと、Bluetoothスタックが
   // 送る ACTION_VOICE_COMMAND を MainActivity（ネイティブ側）が deep link に
   // 読み替えてアプリを開く（`adr/006`）。⚠️ **「起動経路をつなぐだけ」**の
@@ -270,6 +315,14 @@ export default function Index() {
       (async () => {
         const stored = await loadApiKey();
         if (!cancelled) setApiKey(stored);
+      })();
+      // 無音検知の閾値も同じタイミングで読み直す。
+      // ⚠️ **設定画面で変えた値が、戻った直後の録音から効くようにするため。**
+      (async () => {
+        const stored = await loadVadSettings();
+        if (cancelled) return;
+        vadRef.current = stored;
+        setVad(stored);
       })();
       return () => {
         cancelled = true;
@@ -467,10 +520,115 @@ export default function Index() {
   }
 
   /**
+   * 無音検知を止める。
+   *
+   * ⚠️ **録音が終わる経路すべてから呼ぶこと。** 止め忘れると、録音していない
+   * のに `getStatus()` を叩き続け、次の録音の判定にも古い状態が残る。
+   */
+  function stopSilenceDetection() {
+    if (silenceTimer.current) {
+      clearInterval(silenceTimer.current);
+      silenceTimer.current = null;
+    }
+    silentSince.current = null;
+    // ⚠️ 次の録音に持ち越さない（持ち越すと、話す前に送信される状態に戻る）。
+    hasSpoken.current = false;
+    everSilent.current = false;
+    lastMetering.current = undefined;
+    minMeteringSeen.current = undefined;
+    maxMeteringSeen.current = undefined;
+    setMeterDb(null);
+  }
+
+  /**
+   * 無音検知を始める（US-2.04の「終了側」）。
+   *
+   * 一定時間（SILENCE_DURATION_MS）声が途切れたら、話し終えたとみなして
+   * 録音を止め送信する。**これで走行中に画面へ触れる必要がなくなる。**
+   *
+   * ⚠️ **`getStatus()` を読むのはこのループだけにすること。**
+   * Androidの `MediaRecorder.maxAmplitude` は「前回読んでからの最大値」で、
+   * **読むとリセットされる**。他の場所（`useAudioRecorderState` 等）からも
+   * 読むと値を奪い合い、双方が実際より小さい音量を見て誤検知する。
+   */
+  function startSilenceDetection() {
+    // 二重起動を防ぐ（前の録音のループが残っていると判定が混ざる）。
+    stopSilenceDetection();
+    const startedAt = Date.now();
+
+    silenceTimer.current = setInterval(() => {
+      // 録音が既に終わっていたら、後片付けをして抜ける。
+      // ⚠️ **タイマーは自分では止まらない。** 送信経路が止め忘れても、
+      // ここで気づいて確実に止める。
+      if (!recordingRef.current) {
+        stopSilenceDetection();
+        return;
+      }
+
+      const metering = recorder.getStatus().metering;
+      // ⚠️ **録音開始直後の値は捨てる。** `maxAmplitude` は「前回読んでからの
+      // 最大値」なので、1回目には材料が無く 0（＝`-160`）になりやすい。
+      // 実機ログで 109ms 時点の `-160` を確認済み（src/api/voice.ts）。
+      if (Date.now() - startedAt < METERING_WARMUP_MS) return;
+      lastMetering.current = metering;
+      if (metering !== undefined) {
+        // 見えた範囲を控える（判定がなぜそうなったかを後から追うため）。
+        const min = minMeteringSeen.current;
+        const max = maxMeteringSeen.current;
+        if (min === undefined || metering < min) minMeteringSeen.current = metering;
+        if (max === undefined || metering > max) maxMeteringSeen.current = metering;
+      }
+      setMeterDb(metering ?? null);
+
+      // ⚠️ ref から読む（設定画面で変えた値をその場で反映するため）。
+      const settings = vadRef.current;
+      const now = Date.now();
+      if (isSilent(metering, settings)) {
+        // 無音の始まりを覚える（既に計測中ならそのまま continue）。
+        if (silentSince.current === null) silentSince.current = now;
+        // ⚠️ **1サンプルでは「静かになった」と認めない。**
+        // `-160` は測定値ではなく番兵（読み取り失敗・開始直後にも出る）なので、
+        // 単発で騒音ガードを無効化させない。一定時間続いて初めて数える。
+        if (
+          !everSilent.current &&
+          now - silentSince.current >= SUSTAINED_SILENCE_MS
+        ) {
+          console.log(
+            `[vad] sustained silence at ${now - startedAt}ms: ` +
+              `metering=${metering} threshold=${settings.thresholdDb}`,
+          );
+          everSilent.current = true;
+        }
+      } else {
+        // 声が乗った ＝ まだ話している。無音の計測をやり直す。
+        silentSince.current = null;
+        // 一度立てたら録音が終わるまで下ろさない（「話し始めた」の記録）。
+        hasSpoken.current = true;
+      }
+
+      const silentForMs =
+        silentSince.current === null ? 0 : now - silentSince.current;
+      if (
+        shouldStopForSilence(
+          metering,
+          silentForMs,
+          now - startedAt,
+          hasSpoken.current,
+          settings,
+        )
+      ) {
+        // 話し終えたとみなす。⚠️ 停止と送信は分けない（既存の方針どおり）。
+        void stopRecordingAndSend();
+      }
+    }, METERING_INTERVAL_MS);
+  }
+
+  /**
    * 録音を始める（US-2.01）。
    *
    * ⚠️ **上限で自動的に止める。** 走行中は止める操作を忘れやすく、
    * 押し忘れれば上限まで録り続けて**質問ごと失われる**（src/api/voice.ts）。
+   * 通常は無音検知が先に働くので、この上限は最後の砦。
    */
   async function startRecording() {
     // ref で見る。連打されたときも、再レンダーを待たずに2度目を弾ける。
@@ -494,12 +652,37 @@ export default function Index() {
       setRecording(true);
       setAnswer(null);
       recordingTimer.current = setTimeout(() => {
-        // 押し忘れとみなして、録れているぶんで送る。
+        // 上限に達した。⚠️ **中身によって送るか捨てるかを分ける。**
+        // 一度も静かにならなかった＝騒音に埋もれて人の声を拾えていないので、
+        // 送っても意味不明な回答が返るだけ（しかも課金される）。
+        // ⚠️ 判定材料をログに出す（実機で挙動を追えるようにするため）。
+        console.log(
+          `[vad] max reached: everSilent=${everSilent.current} ` +
+            `lastMetering=${lastMetering.current} ` +
+            `minSeen=${minMeteringSeen.current} maxSeen=${maxMeteringSeen.current} ` +
+            `threshold=${vadRef.current.thresholdDb}`,
+        );
+        if (shouldDiscardAsNoise(everSilent.current, lastMetering.current)) {
+          discardAsNoise();
+          return;
+        }
+        // 押し忘れ、または長い質問。録れているぶんで送る。
         void stopRecordingAndSend();
-      }, MAX_RECORDING_MS);
+      }, vadRef.current.maxRecordingMs);
+      // 話し終えたら自動で送るための監視を始める（US-2.04の終了側）。
+      startSilenceDetection();
     } catch (e) {
       recordingRef.current = false;
       setRecording(false);
+      // ⚠️ **上限タイマーを必ず消す。** 残すと、この失敗した録音のタイマーが
+      // **次の録音の最中に発火して早すぎる送信を起こす**（開始に失敗 → すぐ
+      // やり直した場合）。
+      if (recordingTimer.current) {
+        clearTimeout(recordingTimer.current);
+        recordingTimer.current = null;
+      }
+      // 開始に失敗したら監視も残さない（録音していないのに叩き続けるため）。
+      stopSilenceDetection();
       setAnswer("録音を開始できませんでした: " + String(e));
     }
   }
@@ -532,6 +715,9 @@ export default function Index() {
       clearTimeout(recordingTimer.current);
       recordingTimer.current = null;
     }
+    // ⚠️ **早期returnより前に止める。** 録音フラグが既に下りていても
+    // 監視だけ残っていることがあり、残すと `getStatus()` を叩き続ける。
+    stopSilenceDetection();
     if (!recordingRef.current) return;
     recordingRef.current = false;
     setRecording(false);
@@ -544,20 +730,77 @@ export default function Index() {
           playsInSilentMode: true,
         });
       } catch (e) {
+        // ⚠️ **止められなくても音声モードだけは必ず戻す。**
+        // ここで諦めると録音向きのモードが残り、**以降の読み上げが鳴らない**。
+        // 走行中は画面を見ないので、無音になった理由に気づけない。
         console.warn("failed to discard the recording", e);
+        try {
+          await setAudioModeAsync({
+            allowsRecording: false,
+            playsInSilentMode: true,
+          });
+        } catch {
+          // ここまで失敗したら打つ手が無い。次の録音開始時に再度試みる。
+        }
       }
     })();
+  }
+
+  /**
+   * 騒音で聞き取れなかった録音を、送らずに捨てて利用者に知らせる。
+   *
+   * 📌 **判定材料の `[vad]` ログは意図的に残している。** 走行中に閾値が
+   * 合わなかったとき、`adb logcat | grep vad` で `everSilent` と `minSeen` を
+   * 見れば原因が分かる。⚠️ 出すのは音量とフラグだけで、位置情報は含めない。
+   *
+   * ⚠️ **走行中は画面を見ないので、黙って捨ててはいけない。**
+   * 無反応だと「アプリが落ちた」「ボタンを押せていない」と区別がつかず、
+   * 結局画面を見に行くことになる（＝ハンズフリーの趣旨に反する）。
+   *
+   * ⚠️ **読み上げは端末内蔵のTTS（expo-speech）を使う。**
+   * 回答の読み上げはPolly（S3経由の署名付きURL）だが、
+   * **通知にあれを使うのは筋が悪い**（AWSに行く必要が無いうえ、
+   * 電波が切れている場面でこそ鳴らしたい）。expo-speech はオフラインで動く。
+   */
+  function discardAsNoise() {
+    discardRecording();
+    const message =
+      "周囲の音が大きく、聞き取れませんでした。もう一度お話しください。";
+    setAnswer(message);
+    try {
+      Speech.speak(message, { language: "ja-JP" });
+    } catch (e) {
+      // 鳴らせなくても画面には出ているので、ここで止めない。
+      console.warn("failed to announce the noise error", e);
+    }
+  }
+
+  /**
+   * 設定画面へ移る。
+   *
+   * ⚠️ **移る前に録音を捨てる。** `router.push` ではこの画面が
+   * **アンマウントされない**ので、後片付けの useEffect が走らない。
+   * 録音したまま移ると、①マイクを掴んだままになり、設定画面の音量測定が
+   * 開始できない ②裏で上限に達して**設定画面にいる間に送信される**
+   * ③双方が `setAudioModeAsync`（プロセス全体に効く）を奪い合う。
+   */
+  function openSettings() {
+    discardRecording();
+    router.push("/settings");
   }
 
   /** 録音を止めて送る。停止と送信を分けない（走行中の操作を1つに保つ）。 */
   async function stopRecordingAndSend() {
     // ⚠️ ref で見る（上記参照）。state を見ると自動送信が素通りする。
+    // 無音検知・上限タイマー・画面のボタンの3経路から呼ばれるが、
+    // **最初の1回だけが通る**（ここで ref を倒すため二重送信にならない）。
     if (!recordingRef.current) return;
     recordingRef.current = false;
     if (recordingTimer.current) {
       clearTimeout(recordingTimer.current);
       recordingTimer.current = null;
     }
+    stopSilenceDetection();
     setRecording(false);
 
     let uri: string | null = null;
@@ -567,6 +810,16 @@ export default function Index() {
       // 録り終えたら再生できる状態に戻す（読み上げがここで鳴る）。
       await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
     } catch (e) {
+      // ⚠️ **失敗しても音声モードは戻す。** 録音向きのまま残すと
+      // **以降の読み上げが鳴らなくなり**、走行中はその理由に気づけない。
+      try {
+        await setAudioModeAsync({
+          allowsRecording: false,
+          playsInSilentMode: true,
+        });
+      } catch {
+        // ここまで失敗したら打つ手が無い。
+      }
       setAnswer("録音を停止できませんでした: " + String(e));
       return;
     }
@@ -742,14 +995,14 @@ export default function Index() {
       {apiKey === null ? (
         <Pressable
           style={styles.setupBanner}
-          onPress={() => router.push("/settings")}
+          onPress={openSettings}
         >
           <Text style={styles.setupBannerText}>
             APIキーが未設定です。タップして設定してください
           </Text>
         </Pressable>
       ) : (
-        <Pressable onPress={() => router.push("/settings")}>
+        <Pressable onPress={openSettings}>
           <Text style={styles.settingsLink}>設定</Text>
         </Pressable>
       )}
@@ -802,13 +1055,25 @@ export default function Index() {
             disabled={sending}
           >
             <Text style={styles.voiceButtonText}>
-              {recording ? "■ 話し終えたら押す" : "🎤 押して話す"}
+              {recording ? "■ 話し終えたら止まります" : "🎤 押して話す"}
             </Text>
           </Pressable>
           {recording && (
-            <Text style={styles.recordingNote}>
-              録音中…（{MAX_RECORDING_MS / 1000}秒で自動送信）
-            </Text>
+            <>
+              <Text style={styles.recordingNote}>
+                録音中…（{(vad.durationMs / 1000).toFixed(1)}秒の無音で自動送信／
+                最長{vad.maxRecordingMs / 1000}秒）
+              </Text>
+              {/* ⚠️ **閾値を実走行で詰めるための表示。** 走行中に見るものではなく、
+                  停車中に「喋ったとき／黙ったとき」の値を確かめるために出す。
+                  値がズレていたら設定画面で直す（そちらにも測定機能がある）。 */}
+              <Text style={styles.note}>
+                {meterDb === null
+                  ? "音量: 測定できません"
+                  : `音量 ${meterDb.toFixed(1)} dB / 閾値 ${vad.thresholdDb} dB` +
+                    `（${isSilent(meterDb, vad) ? "無音" : "音あり"}）`}
+              </Text>
+            </>
           )}
         </View>
       )}
