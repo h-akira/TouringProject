@@ -92,6 +92,7 @@ Alexaが候補としてあっても常に無視されていた
 - ⚠️ **マップアプリの上に本アプリが被さる。** `FLAG_ACTIVITY_NEW_TASK` で新規タスクとして
   起動されるため、地図アプリを前面に出していても本アプリに切り替わる
   （Google Assistant起動時も同様の挙動なので、Androidの仕様上の制約）。
+  📌 **この点は 2026-08-21 に解消した**（下記）。
 - 📌 **`recognitionService` の実測値**（Google Recognition Serviceのコンポーネント名）は
   今回不要になったが、`VoiceInteractionService` を将来また使う場面があれば
   [FINDINGS.md](../pre-research/handsfree/FINDINGS.md) §9 に記録が残っている。
@@ -101,3 +102,8 @@ Alexaが候補としてあっても常に無視されていた
   （⚠️ Pollyは使わない。通信できない場面でこそ鳴らしたいため）。
   ⚠️ **ただし閾値が走行中に成立するかは未検証**
   （[FINDINGS.md](../pre-research/handsfree/FINDINGS.md) §10〜11）。
+- 📌 **「マップアプリが引っ込む」への対処は [adr/007](007_return_to_map_after_answer.md) で決めた**
+  （2026-08-21）。**回答が届いた時点で、設定で選んだアプリを前面に戻す。**
+  ⚠️ **`moveTaskToBack` で自アプリを背面へ退ける案は実機で不成立**
+  （ホーム画面に落ち、マップは最小化されたまま）。
+  経緯と実測は [FINDINGS.md](../pre-research/handsfree/FINDINGS.md) §13.4〜13.5。

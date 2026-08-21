@@ -12,10 +12,11 @@
 ここでは**判断に効くもの**だけ:
 
 - **Web(PWA)は却下済み**（常駐＋完全ハンズフリーがブラウザでは不可能）。**前提を覆さない。**
-- **唯一残る技術的リスクは、RNでハンズフリー起動を成立させられるか**（US-2.04）。
-  ⚠️ **方式は決着済み**（`VoiceInteractionService` で**Androidの既定アシスタントになる**。
-  `pre-research/handsfree/`）。**ウェイクワードは却下した**（常時マイク占有）。
-  破綻したらKotlinネイティブへ再検討。
+- **ハンズフリー起動（US-2.04）は実機で成立済み**（本プロジェクト唯一の技術的リスクだった）。
+  ⚠️ **方式は `android.intent.action.VOICE_COMMAND` を `MainActivity` の intent-filter で受ける**
+  （`App/plugins/withVoiceInteraction.js`。[adr/006](adr/006_handsfree_launch_mechanism.md)）。
+  ⚠️ **`VoiceInteractionService` は実機で不成立と判明し却下した。** 蒸し返さないこと。
+  **ウェイクワードも却下**（常時マイク占有）。
 - **IaCは `Backend/`=SAM、`Agent/`=CDK**（`agentcore` CLIの仕様）。混同しない。
 
 ### 実装の重心
@@ -122,7 +123,7 @@ ADRは**その時点で何を知った上でどう判断したか**の記録な�
   動作確認は **実機Android + Development Build**: `cd App && npx expo start` で
   Metro（開発サーバー）を起動し、実機にインストール済みのアプリ（`com.touringproject.app`）を開く。
   ⚠️ **`expo start` は対話型TUIなのでAIがバックグラウンド実行しない。**
-  ユーザー自身のターミナルで起動してもらう。**手順は [App/README.md](App/README.md)**
+  ユーザー自身のターミナルで起動してもらう。**手順は [App/SETUP.md](App/SETUP.md)**
   （初回セットアップ・中断/再開・つまずいたとき）。技術的な背景を学ぶなら
   [learning/09](learning/09_android_dev_environment.md)・[learning/10](learning/10_expo_development_build.md)。
 - **ネイティブコード（`android/`）を変更したら `npx expo run:android` で再ビルド**が要る

@@ -56,15 +56,15 @@ flowchart LR
 
 | 処理 | 担当 | 使うもの |
 |---|---|---|
-| ハンズフリー起動 | アプリ（Androidのアシスタント） | `VoiceInteractionService`（インカムのボタンで起動） |
+| ハンズフリー起動 | アプリ（Androidのアシスタント） | `ACTION_VOICE_COMMAND` の intent-filter（インカムのボタンで起動） |
 | 位置の取得（履歴を保持） | アプリ | expo-location |
-| 録音 | アプリ | expo-av 等 |
+| 録音 | アプリ | `expo-audio`（無音検知つき） |
 | 音声 → テキスト（STT） | **AWS** | Lambda → Amazon Transcribe（§7） |
 | 入力の検証・流量制限 | **AWS** | API Gateway + Lambda |
 | 座標 → 住所、進行方位の算出 | **AWS** | Lambda（§4） |
 | 会話の保持・回答生成・Web検索 | **AWS** | AgentCore + Bedrock |
 | テキスト → 音声（TTS） | **AWS** | Lambda → Amazon Polly（§7） |
-| 音声の再生 | アプリ | expo-av 等 |
+| 音声の再生 | アプリ | `expo-audio` |
 
 > ⚠️ **アプリは録音・再生だけ**を担い、**音声ファイルをAPIに送る**（§7）。
 > STT/TTS を Lambda 側に置くことで、**門番としてのLambda**が音声にも効く（§3）。
