@@ -526,6 +526,11 @@ export default function Index() {
       setAnswer("送信に失敗しました: " + String(e));
     } finally {
       setSending(false);
+      // ⚠️ **この経路でも必ず倒す。** 残すと、あとで画面から質問して成功した
+      // ときに `returnToMapIfHandsFree` が発火し、**見ている画面が勝手に
+      // マップへ切り替わる**（ハンズフリー起動 → 失敗 → 画面で再質問、の順）。
+      launchedHandsFree.current = false;
+      wasHandsFree.current = false;
     }
   }
 
@@ -662,18 +667,18 @@ export default function Index() {
    * 押し忘れれば上限まで録り続けて**質問ごと失われる**（src/api/voice.ts）。
    * 通常は無音検知が先に働くので、この上限は最後の砦。
    */
-  async function startRecording() {
+  async function startRecording(): Promise<boolean> {
     // ref で見る。連打されたときも、再レンダーを待たずに2度目を弾ける。
-    if (recordingRef.current || sending) return;
+    if (recordingRef.current || sending) return false;
     if (!apiKey) {
       setAnswer("エラー: APIキーが未設定です（設定画面で入力してください）");
-      return;
+      return false;
     }
     try {
       const { granted } = await requestRecordingPermissionsAsync();
       if (!granted) {
         setAnswer("エラー: マイクの許可が得られませんでした");
-        return;
+        return false;
       }
       // 録音中は他の音を止める。読み上げの途中で録り始めると自分の声に
       // 回答が被る。
@@ -703,6 +708,7 @@ export default function Index() {
       }, vadRef.current.maxRecordingMs);
       // 話し終えたら自動で送るための監視を始める（US-2.04の終了側）。
       startSilenceDetection();
+      return true;
     } catch (e) {
       recordingRef.current = false;
       setRecording(false);
@@ -716,6 +722,7 @@ export default function Index() {
       // 開始に失敗したら監視も残さない（録音していないのに叩き続けるため）。
       stopSilenceDetection();
       setAnswer("録音を開始できませんでした: " + String(e));
+      return false;
     }
   }
 
@@ -730,15 +737,29 @@ export default function Index() {
     if (autoRecordHandledUrl.current === launchUrl) return;
     if (!parseUrl(launchUrl).queryParams?.autoRecord) return;
     autoRecordHandledUrl.current = launchUrl;
-    // ⚠️ **前の質問のポーリングが残っていたら捨てる。**
-    // 残すと、新しく話し終えたときに**前の質問の答えが返ってくる**
-    // （実機で発生した。FINDINGS.md §13.8）。⚠️ 走行中は画面を見ないので、
-    // 「さっきの答え」が返ってきても気づけないまま会話が食い違う。
-    pollAbort.current = true;
-    // この一往復の出口は「マップへ戻る」。画面操作で始めたときと区別する。
-    launchedHandsFree.current = true;
-    wasHandsFree.current = true;
-    void startRecording();
+    void (async () => {
+      // ⚠️ **応答待ちの最中でも押されうる。** その場合 startRecording は
+      // `sending` で弾かれるので、**先に前の質問を捨ててはいけない**
+      // （捨てたうえに録音も始まらず、押しても完全に無反応になる）。
+      const started = await startRecording();
+      if (!started) {
+        // ⚠️ **黙って諦めない。** 走行中は画面を見ないので、無反応だと
+        // 「押せていない」のか「壊れた」のか区別がつかない。
+        console.log("[handsfree] could not start recording (busy or no key)");
+        Speech.speak("いま応答中です。少し待ってからもう一度お話しください。", {
+          language: "ja-JP",
+        });
+        return;
+      }
+      // ⚠️ **録音が始まってから前の質問を捨てる。** 順序を逆にすると、
+      // 上の早期returnの経路で**前の回答だけが失われる。**
+      // 残すと、新しく話し終えたときに**前の質問の答えが返ってくる**
+      // （実機で発生した。FINDINGS.md §13.8）。
+      pollAbort.current = true;
+      // この一往復の出口は「マップへ戻る」。画面操作で始めたときと区別する。
+      launchedHandsFree.current = true;
+      wasHandsFree.current = true;
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [launchUrl, coords, apiKey]);
 
@@ -930,6 +951,10 @@ export default function Index() {
       // エラーだけが手がかりなので、隠すと何も分からなくなる）。
       // ただし**フラグは倒す。** 残すと、次に画面から操作したときに勝手に引っ込む。
       launchedHandsFree.current = false;
+      // ⚠️ **一往復はここで終わり。** 倒さないと、次に画面から操作して失敗した
+      // ときに「画面を見ているのに読み上げる」ことになる。
+      // 📌 `announceIfHandsFree` はこの手前で呼び終わっているので順序は問題ない。
+      wasHandsFree.current = false;
     }
   }
 
@@ -961,9 +986,6 @@ export default function Index() {
    */
   function playAnswer(audioUrl: string) {
     try {
-      // ⚠️ 読み上げの開始時刻。上の launchApp の時刻と突き合わせて、
-      // 「戻る」と「鳴り始める」のどちらが先かを実機で確かめる。
-      console.log(`[handsfree] playAnswer t=${Date.now()}`);
       player.replace({ uri: audioUrl });
       player.play();
     } catch (e) {
@@ -1002,15 +1024,12 @@ export default function Index() {
     }
 
     try {
-      // ⚠️ **前後の時刻を出す。** 「読み上げ後に戻ったように見える」現象が
-      // ①戻すのが遅い のか ②戻ってから鳴り始めた のかを、実機で切り分けるため。
-      console.log(`[handsfree] launchApp start t=${Date.now()}`);
       const launched = await AppForeground.launchApp(packageName);
       // ⚠️ **false を黙って捨てない。** 戻れないと画面が残るが、走行中は
       // 見ていないので気づけない。実機では `adb logcat | grep handsfree` で追える。
-      console.log(
-        `[handsfree] launchApp(${packageName}) returned ${launched} t=${Date.now()}`,
-      );
+      // ⚠️ **true でも戻ったとは限らない。** アプリが既に背面にある状態で
+      // 呼ぶと、Android 10+ は起動を黙って無視する（例外も出ず成功扱い）。
+      console.log(`[handsfree] launchApp(${packageName}) returned ${launched}`);
     } catch (e) {
       // 戻れなくても回答は鳴っている。ここで止める理由はない。
       console.warn("failed to return to the map app", e);
