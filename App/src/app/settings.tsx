@@ -20,7 +20,19 @@ import {
   setAudioModeAsync,
 } from "expo-audio";
 import { loadApiKey, saveApiKey, clearApiKey } from "@/api/apiKey";
-import { RECORDING_OPTIONS, METERING_INTERVAL_MS, isSilent } from "@/api/voice";
+import {
+  RECORDING_OPTIONS,
+  METERING_INTERVAL_MS,
+  AUDIO_MODE_RECORDING,
+  AUDIO_MODE_PLAYBACK,
+  isSilent,
+} from "@/api/voice";
+import {
+  loadReturnApp,
+  saveReturnApp,
+  type LaunchableApp,
+} from "@/api/returnApp";
+import AppForeground from "@/native/app-foreground";
 import {
   DEFAULT_VAD_SETTINGS,
   VAD_LIMITS,
@@ -92,6 +104,11 @@ export default function Settings() {
   const meterRecorder = useAudioRecorder(RECORDING_OPTIONS);
   const [monitoring, setMonitoring] = useState(false);
   const [meterDb, setMeterDb] = useState<number | null>(null);
+
+  // 応答後に戻る先のアプリ（US-2.04）。null は「戻らない」。
+  const [apps, setApps] = useState<LaunchableApp[]>([]);
+  const [returnApp, setReturnApp] = useState<string | null>(null);
+  const [returnAppMessage, setReturnAppMessage] = useTransientMessage();
   const monitorTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   // 停止処理を effect の後片付けからも呼ぶので、最新の実体を ref で持つ。
   const stopMonitorRef = useRef<() => void>(() => {});
@@ -114,9 +131,35 @@ export default function Settings() {
       setDurationSec(String(settings.durationMs / 1000));
       setGraceSec(String(settings.graceMs / 1000));
       setMaxRecordingSec(String(settings.maxRecordingMs / 1000));
+      setReturnApp(await loadReturnApp());
       setLoading(false);
     })();
+    // 戻り先に選べるアプリの一覧。⚠️ **失敗しても設定画面全体は使えるようにする**
+    // （一覧が空でも、APIキーや閾値の設定は独立して成立する）。
+    (async () => {
+      try {
+        setApps(await AppForeground.listLaunchableApps());
+      } catch (e) {
+        console.warn("failed to list launchable apps", e);
+      }
+    })();
   }, []);
+
+  /**
+   * 戻り先のアプリを選ぶ。⚠️ **選んだ時点で保存する**（保存ボタンを作らない）。
+   * 走行前に触る設定なので、押し忘れで効かない方が困る。
+   */
+  async function onSelectReturnApp(packageName: string | null) {
+    setReturnApp(packageName);
+    try {
+      await saveReturnApp(packageName);
+      setReturnAppMessage(
+        packageName === null ? "戻らないようにしました" : "保存しました",
+      );
+    } catch {
+      setReturnAppMessage("保存できませんでした");
+    }
+  }
 
   async function onSave() {
     const trimmed = apiKey.trim();
@@ -162,10 +205,7 @@ export default function Settings() {
     void (async () => {
       try {
         await meterRecorder.stop();
-        await setAudioModeAsync({
-          allowsRecording: false,
-          playsInSilentMode: true,
-        });
+        await setAudioModeAsync(AUDIO_MODE_PLAYBACK);
       } catch {
         // 既に止まっている場合は失敗しうる。捨てててよい。
       }
@@ -186,7 +226,7 @@ export default function Settings() {
         setVadMessage("マイクの許可が得られませんでした");
         return;
       }
-      await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
+      await setAudioModeAsync(AUDIO_MODE_RECORDING);
       await meterRecorder.prepareToRecordAsync();
       meterRecorder.record();
       setMonitoring(true);
@@ -415,6 +455,52 @@ export default function Settings() {
 
       {vadMessage && <Text style={styles.message}>{vadMessage}</Text>}
 
+      <View style={styles.divider} />
+
+      <Text style={styles.title}>応答後に戻るアプリ</Text>
+      <Text style={styles.note}>
+        インカムのボタンで起動したときだけ、回答が届いた時点でこのアプリに戻ります
+        （読み上げは戻ったあとも続きます）。ナビ中のアプリを選んでください。
+      </Text>
+      <Text style={styles.note}>
+        ⚠️ 案内中のルートは壊れません（開き直すのではなく、元の画面に戻ります）。
+      </Text>
+
+      <Pressable
+        style={[
+          styles.appRow,
+          returnApp === null && styles.appRowSelected,
+        ]}
+        onPress={() => void onSelectReturnApp(null)}
+      >
+        <Text style={styles.appRowText}>
+          {returnApp === null ? "◉" : "○"}　戻らない
+        </Text>
+      </Pressable>
+
+      {apps.length === 0 ? (
+        <Text style={styles.note}>アプリの一覧を取得できませんでした。</Text>
+      ) : (
+        apps.map((app) => (
+          <Pressable
+            key={app.packageName}
+            style={[
+              styles.appRow,
+              returnApp === app.packageName && styles.appRowSelected,
+            ]}
+            onPress={() => void onSelectReturnApp(app.packageName)}
+          >
+            <Text style={styles.appRowText} numberOfLines={1}>
+              {returnApp === app.packageName ? "◉" : "○"}　{app.label}
+            </Text>
+          </Pressable>
+        ))
+      )}
+
+      {returnAppMessage && (
+        <Text style={styles.message}>{returnAppMessage}</Text>
+      )}
+
       <Pressable style={styles.backButton} onPress={() => router.back()}>
         <Text style={styles.backButtonText}>戻る</Text>
       </Pressable>
@@ -461,6 +547,16 @@ const styles = StyleSheet.create({
   },
   clearButtonText: { color: "#FF9E7A", fontSize: 15, fontWeight: "bold" },
   message: { fontSize: 14, color: "#7FD1AE", textAlign: "center" },
+  appRow: {
+    backgroundColor: "#2A2A3E",
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: "transparent",
+  },
+  appRowSelected: { borderColor: "#FF6B35" },
+  appRowText: { color: "#FFFFFF", fontSize: 15 },
   divider: {
     borderTopWidth: 1,
     borderTopColor: "#3A3A4E",

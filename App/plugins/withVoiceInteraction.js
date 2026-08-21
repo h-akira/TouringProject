@@ -158,9 +158,45 @@ const withVoiceCommandMainActivity = (config) => {
   ]);
 };
 
+// 応答後に戻る先（マップアプリ）を選べるようにするため、
+// **インストール済みアプリのランチャー項目を引ける**ようにする。
+//
+// ⚠️ **Android 11+ では既定で他アプリが見えない**（package visibility）。
+// `<queries>` を宣言しないと `queryIntentActivities` が空を返し、
+// 「戻り先アプリ」の一覧が作れない。
+// ⚠️ **`QUERY_ALL_PACKAGES` は使わない。** Google Play の審査対象になる強い権限で、
+// ここでは**ランチャーに出るアプリが見えれば足りる**（adr/007「影響」）。
+const withLauncherQueries = (config) => {
+  return withAndroidManifest(config, (config) => {
+    const manifest = config.modResults.manifest;
+    if (!manifest.queries) manifest.queries = [];
+    const hasLauncherQuery = manifest.queries.some((q) =>
+      (q.intent ?? []).some((i) =>
+        (i.action ?? []).some(
+          (a) => a.$["android:name"] === "android.intent.action.MAIN",
+        ),
+      ),
+    );
+    if (!hasLauncherQuery) {
+      manifest.queries.push({
+        intent: [
+          {
+            action: [{ $: { "android:name": "android.intent.action.MAIN" } }],
+            category: [
+              { $: { "android:name": "android.intent.category.LAUNCHER" } },
+            ],
+          },
+        ],
+      });
+    }
+    return config;
+  });
+};
+
 const withVoiceCommand = (config) => {
   config = withVoiceCommandIntentFilter(config);
   config = withVoiceCommandMainActivity(config);
+  config = withLauncherQueries(config);
   return config;
 };
 

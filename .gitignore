@@ -13,8 +13,11 @@ App/src/api/schema.ts
 .expo/
 web-build/
 # 生成されるネイティブフォルダ（Development Build 時）
-android/
-ios/
+# ⚠️ **先頭の `/` が要る。** `android/` と書くと**深さを問わず一致する**ため、
+# 自前のネイティブモジュール（`App/modules/*/android/`）まで巻き込んで
+# **Kotlinのソースが永久にコミットされない**（ビルドが通らなくなる）。
+/App/android/
+/App/ios/
 
 # === 環境変数・機密情報 ===
 .env

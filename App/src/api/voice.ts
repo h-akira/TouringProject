@@ -45,6 +45,50 @@ export const RECORDING_OPTIONS: RecordingOptions = {
 export const METERING_INTERVAL_MS = 100;
 
 /**
+ * 録音するときの音声モード。読み上げの途中で録り始めると自分の声に回答が被る。
+ *
+ * ⚠️ **`setAudioModeAsync` はプロセス全体に効く。** 画面ごとに値を書くと
+ * **後から呼んだ画面の設定が全体を上書きする**ので、
+ * **録音向き・再生向きの2つに固定し、ここだけで持つ。**
+ */
+export const AUDIO_MODE_RECORDING = {
+  allowsRecording: true,
+  playsInSilentMode: true,
+} as const;
+
+/**
+ * 録音していないときの音声モード。**録音を終えたら必ずこれに戻す。**
+ *
+ * ⚠️ **`shouldPlayInBackground: true` が要る（US-2.04）。** これが無いと
+ * `expo-audio` は**アプリが背面に回った瞬間に再生を止める**
+ * （`AudioModule.kt` の `OnActivityEntersBackground` が全プレイヤーを pause）。
+ * 回答が届いた時点でマップアプリへ戻り、**背面で読み上げを続ける**のが要件なので、
+ * ⚠️ **false に戻すと「マップに戻った瞬間に無音になる」形で壊れる。**
+ *
+ * ⚠️ **設定画面の音量測定もこれを使うこと。** あちらは背面再生と無関係だが、
+ * プロセス全体に効くため、独自の値に戻すと**次のハンズフリー応答が背面で黙る。**
+ */
+export const AUDIO_MODE_PLAYBACK = {
+  allowsRecording: false,
+  playsInSilentMode: true,
+  shouldPlayInBackground: true,
+  /**
+   * ⚠️ **`mixWithOthers` にする（US-2.04）。**
+   *
+   * 応答後はマップアプリを前面に戻すが、**マップは案内の音声のために
+   * オーディオフォーカスを取る。** 既定（フォーカスを要求する側）のままだと、
+   * `expo-audio` はフォーカスを奪われた時点で
+   * **プレイヤーを一時停止する**（`AudioModule.kt` の `AUDIOFOCUS_LOSS*`）ため、
+   * ⚠️ **戻った瞬間に読み上げが止まりうる。**
+   *
+   * `mixWithOthers` は**フォーカスを要求しない**ので、奪われることもない。
+   * 📌 **ナビの音声と重なって鳴るが、それが正しい**
+   * （どちらも走行中に聞きたい情報で、片方を黙らせる理由がない）。
+   */
+  interruptionMode: "mixWithOthers",
+} as const;
+
+/**
  * 無音が続いた時間から「もう送ってよいか」を判定する。
  *
  * 実際の計時は呼び出し側（連続した無音の開始時刻）が持ち、ここは判定だけを担う。

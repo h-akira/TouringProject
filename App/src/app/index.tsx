@@ -23,6 +23,8 @@ import * as Speech from "expo-speech";
 import {
   RECORDING_OPTIONS,
   METERING_INTERVAL_MS,
+  AUDIO_MODE_RECORDING,
+  AUDIO_MODE_PLAYBACK,
   METERING_WARMUP_MS,
   SUSTAINED_SILENCE_MS,
   isSilent,
@@ -36,6 +38,8 @@ import {
   loadVadSettings,
   type VadSettings,
 } from "@/api/vadSettings";
+import { loadReturnApp } from "@/api/returnApp";
+import AppForeground from "@/native/app-foreground";
 import type {
   AskRequest,
   AskAcceptedResponse,
@@ -305,6 +309,26 @@ export default function Index() {
   // 次のレンダーで再挑戦できるようにする。
   const autoRecordHandledUrl = useRef<string | null>(null);
 
+  // この一往復がハンズフリー起動から始まったか（US-2.04）。
+  // ⚠️ **回答後にマップへ戻すのは、この場合だけ。** 画面から自分で操作した
+  // ときにも引っ込めると、**見ようとしている画面を勝手に隠す**ことになる
+  // （停車中に設定を詰める・回答を読み返す、といった使い方を壊す）。
+  const launchedHandsFree = useRef(false);
+
+  // この一往復がハンズフリーだったか（⚠️ **`launchedHandsFree` とは別物**）。
+  // あちらは「まだ戻していない」という意味で、**戻した時点で倒れる**。
+  // 回答を待たずに戻すようになったため、**戻した後に起きる失敗**を
+  // 読み上げで知らせる必要があり、そのための記録がこれ。
+  const wasHandsFree = useRef(false);
+
+  // 応答後に戻る先のアプリ（設定画面で選ぶ。src/api/returnApp.ts）。
+  // ⚠️ **ref で持つ。** 戻す処理は非同期の完了後に走るので、state だけだと
+  // 古いレンダーの値を掴みうる（vadRef と同じ理由）。
+  const returnAppRef = useRef<string | null>(null);
+  // 表示用。⚠️ **未設定だと「戻らない」が既定なので、黙っていると
+  // 機能が壊れているのと見分けがつかない**（実際にそう見えた）。
+  const [returnApp, setReturnApp] = useState<string | null>(null);
+
   // 設定画面から戻ってきたときに読み直す。
   // ⚠️ **useEffect(…, []) では足りない。** expo-router は戻ってきた画面を
   // 再マウントしないので、初回しか読まないとキーを保存した直後でも
@@ -323,6 +347,13 @@ export default function Index() {
         if (cancelled) return;
         vadRef.current = stored;
         setVad(stored);
+      })();
+      // 戻り先のアプリも同じタイミングで読み直す。
+      (async () => {
+        const stored = await loadReturnApp();
+        if (cancelled) return;
+        returnAppRef.current = stored;
+        setReturnApp(stored);
       })();
       return () => {
         cancelled = true;
@@ -489,6 +520,7 @@ export default function Index() {
         setAnswer(result.text);
         // 文字で聞いても音声は返る。走行中は画面を見ないので鳴らす。
         if (result.audioUrl) playAnswer(result.audioUrl);
+        void returnToMapIfHandsFree();
       }
     } catch (e) {
       setAnswer("送信に失敗しました: " + String(e));
@@ -645,7 +677,7 @@ export default function Index() {
       }
       // 録音中は他の音を止める。読み上げの途中で録り始めると自分の声に
       // 回答が被る。
-      await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
+      await setAudioModeAsync(AUDIO_MODE_RECORDING);
       await recorder.prepareToRecordAsync();
       recorder.record();
       recordingRef.current = true;
@@ -698,6 +730,14 @@ export default function Index() {
     if (autoRecordHandledUrl.current === launchUrl) return;
     if (!parseUrl(launchUrl).queryParams?.autoRecord) return;
     autoRecordHandledUrl.current = launchUrl;
+    // ⚠️ **前の質問のポーリングが残っていたら捨てる。**
+    // 残すと、新しく話し終えたときに**前の質問の答えが返ってくる**
+    // （実機で発生した。FINDINGS.md §13.8）。⚠️ 走行中は画面を見ないので、
+    // 「さっきの答え」が返ってきても気づけないまま会話が食い違う。
+    pollAbort.current = true;
+    // この一往復の出口は「マップへ戻る」。画面操作で始めたときと区別する。
+    launchedHandsFree.current = true;
+    wasHandsFree.current = true;
     void startRecording();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [launchUrl, coords, apiKey]);
@@ -725,20 +765,14 @@ export default function Index() {
     void (async () => {
       try {
         await recorder.stop();
-        await setAudioModeAsync({
-          allowsRecording: false,
-          playsInSilentMode: true,
-        });
+        await setAudioModeAsync(AUDIO_MODE_PLAYBACK);
       } catch (e) {
         // ⚠️ **止められなくても音声モードだけは必ず戻す。**
         // ここで諦めると録音向きのモードが残り、**以降の読み上げが鳴らない**。
         // 走行中は画面を見ないので、無音になった理由に気づけない。
         console.warn("failed to discard the recording", e);
         try {
-          await setAudioModeAsync({
-            allowsRecording: false,
-            playsInSilentMode: true,
-          });
+          await setAudioModeAsync(AUDIO_MODE_PLAYBACK);
         } catch {
           // ここまで失敗したら打つ手が無い。次の録音開始時に再度試みる。
         }
@@ -768,10 +802,22 @@ export default function Index() {
       "周囲の音が大きく、聞き取れませんでした。もう一度お話しください。";
     setAnswer(message);
     try {
-      Speech.speak(message, { language: "ja-JP" });
+      // ⚠️ **読み上げ切ってから戻る。** 回答（Polly）は背面でも鳴り続けるが、
+      // ⚠️ **端末内蔵TTSは別系統**で、背面に回した時点で切られうる。
+      // ここは「やり直してほしい」という短い通知なので、**最後まで聞こえること**
+      // を優先する（走行中は画面を見ないので、これが唯一の手がかりになる）。
+      // ⚠️ **失敗しても必ず戻す。** 戻さないとマップが引っ込んだままになる。
+      Speech.speak(message, {
+        language: "ja-JP",
+        onDone: () => void returnToMapIfHandsFree(),
+        onStopped: () => void returnToMapIfHandsFree(),
+        onError: () => void returnToMapIfHandsFree(),
+      });
     } catch (e) {
       // 鳴らせなくても画面には出ているので、ここで止めない。
       console.warn("failed to announce the noise error", e);
+      // ⚠️ 読み上げが始まらなかった＝コールバックも来ないので、ここで戻す。
+      void returnToMapIfHandsFree();
     }
   }
 
@@ -786,6 +832,10 @@ export default function Index() {
    */
   function openSettings() {
     discardRecording();
+    // 画面を操作しに来た＝もうハンズフリーの一往復ではない。
+    // ⚠️ 倒さないと、設定から戻ったあとの回答で勝手に引っ込む。
+    launchedHandsFree.current = false;
+    wasHandsFree.current = false;
     router.push("/settings");
   }
 
@@ -808,23 +858,24 @@ export default function Index() {
       await recorder.stop();
       uri = recorder.uri;
       // 録り終えたら再生できる状態に戻す（読み上げがここで鳴る）。
-      await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
+      await setAudioModeAsync(AUDIO_MODE_PLAYBACK);
     } catch (e) {
       // ⚠️ **失敗しても音声モードは戻す。** 録音向きのまま残すと
       // **以降の読み上げが鳴らなくなり**、走行中はその理由に気づけない。
       try {
-        await setAudioModeAsync({
-          allowsRecording: false,
-          playsInSilentMode: true,
-        });
+        await setAudioModeAsync(AUDIO_MODE_PLAYBACK);
       } catch {
         // ここまで失敗したら打つ手が無い。
       }
       setAnswer("録音を停止できませんでした: " + String(e));
+      // ⚠️ この2つの return は下の finally を通らないので、ここで倒す
+      // （残すと、次に画面から操作したときに勝手に引っ込む）。
+      launchedHandsFree.current = false;
       return;
     }
     if (!uri || !coords || !apiKey || !API_BASE_URL) {
       setAnswer("エラー: 録音を送信できませんでした");
+      launchedHandsFree.current = false;
       return;
     }
 
@@ -851,15 +902,54 @@ export default function Index() {
       if (conversationStartedAt.current === null) {
         conversationStartedAt.current = Date.now();
       }
+      // ⚠️ **回答を待ってから戻す。前倒しは実機で破綻した（2026-08-21）。**
+      // 送信できた時点で戻すと**その分ナビが早く見える**が、背面に回った
+      // 本アプリは Android に**キャッシュプロセス**へ落とされ（oom_adj=700・
+      // state=LAST を実機で確認）、**JSが凍結してポーリングが止まる。**
+      // 症状は「初回の回答が来ず、次にボタンを押すと前回の答えが返る」。
+      // ⚠️ **フォアグラウンドサービスを持たない限り、背面では待てない**
+      // （pre-research/handsfree/FINDINGS.md §13.8）。
       const result = await pollForAnswer(accepted.requestId, apiKey);
       if (result !== null) {
         setAnswer(result.text);
         if (result.audioUrl) playAnswer(result.audioUrl);
+        // 回答が届いた。⚠️ **読み上げの完了は待たない**（背面で鳴り続ける）。
+        void returnToMapIfHandsFree();
+        // ⚠️ **音声が無いまま終わることがある**（合成に失敗した場合）。
+        // 黙ると「何も起きなかった」と区別がつかないので、本文を読み上げる。
+        if (!result.audioUrl) announceIfHandsFree(result.text);
+      } else {
+        announceIfHandsFree("回答を取得できませんでした。もう一度お話しください。");
       }
     } catch (e) {
       setAnswer("送信に失敗しました: " + String(e));
+      announceIfHandsFree("送信に失敗しました。もう一度お話しください。");
     } finally {
       setSending(false);
+      // ⚠️ **エラーで終わったときは戻らない**（読み上げるものが無く、画面に出た
+      // エラーだけが手がかりなので、隠すと何も分からなくなる）。
+      // ただし**フラグは倒す。** 残すと、次に画面から操作したときに勝手に引っ込む。
+      launchedHandsFree.current = false;
+    }
+  }
+
+  /**
+   * ハンズフリー中だけ、端末内蔵TTSで読み上げて知らせる。
+   *
+   * ⚠️ **回答を待たずにマップへ戻るようになったので、失敗を画面に出しても
+   * 見えない。** 走行中に無反応だと「アプリが落ちた」「ボタンを押せていない」と
+   * 区別がつかず、結局画面を見に行くことになる（＝ハンズフリーの趣旨に反する）。
+   *
+   * ⚠️ **Pollyではなく `expo-speech` を使う**（騒音ガードの通知と同じ理由。
+   * AWSに行く必要が無く、**電波が切れている場面でこそ鳴らしたい**）。
+   */
+  function announceIfHandsFree(message: string) {
+    // 画面を見ながら操作しているなら、画面に出ているので読み上げない。
+    if (!wasHandsFree.current) return;
+    try {
+      Speech.speak(message, { language: "ja-JP" });
+    } catch (e) {
+      console.warn("failed to announce", e);
     }
   }
 
@@ -871,10 +961,59 @@ export default function Index() {
    */
   function playAnswer(audioUrl: string) {
     try {
+      // ⚠️ 読み上げの開始時刻。上の launchApp の時刻と突き合わせて、
+      // 「戻る」と「鳴り始める」のどちらが先かを実機で確かめる。
+      console.log(`[handsfree] playAnswer t=${Date.now()}`);
       player.replace({ uri: audioUrl });
       player.play();
     } catch (e) {
       console.warn("failed to play the answer", e);
+    }
+  }
+
+  /**
+   * ハンズフリー起動だったら、マップアプリを前面に戻す（US-2.04）。
+   *
+   * ⚠️ **読み上げより先に戻す。** 回答が届いた時点で戻し、**背面で鳴らし続ける**
+   * のが要件（読み上げ終わりを待つと、その間ナビが見えない）。これが成り立つのは
+   * `setAudioModeAsync({ shouldPlayInBackground: true })` を先に入れてあるため。
+   * ⚠️ **入れ忘れると `expo-audio` は背面に回った瞬間に再生を止める**
+   * （AudioModule.kt の `OnActivityEntersBackground`）。
+   *
+   * ⚠️ **`moveTaskToBack` は使わない。** 自分のタスクを下げるだけで
+   * **ホーム画面に落ちる**と実機で確定した（FINDINGS.md §13.4）。
+   * 代わりに**戻り先アプリを開く**。⚠️ これは起動し直しではなく
+   * **既存タスクの再開**なので、案内中のルートは壊れない（同 §13.5）。
+   *
+   * ⚠️ **一度戻したらフラグを倒す。** 倒さないと、次に画面から操作したときにも
+   * 勝手に引っ込む。次のハンズフリー起動でまた立つ。
+   */
+  async function returnToMapIfHandsFree() {
+    if (!launchedHandsFree.current) return;
+    launchedHandsFree.current = false;
+
+    // 未設定なら何もしない。⚠️ **勝手にどこかへ飛ばさない**（src/api/returnApp.ts）。
+    // ⚠️ **黙って諦めない。** 既定が「戻らない」なので、設定し忘れると
+    // **機能が壊れているのと見分けがつかない**（実際にそう見えた）。
+    const packageName = returnAppRef.current;
+    if (!packageName) {
+      console.log("[handsfree] no return app configured; staying in the app");
+      return;
+    }
+
+    try {
+      // ⚠️ **前後の時刻を出す。** 「読み上げ後に戻ったように見える」現象が
+      // ①戻すのが遅い のか ②戻ってから鳴り始めた のかを、実機で切り分けるため。
+      console.log(`[handsfree] launchApp start t=${Date.now()}`);
+      const launched = await AppForeground.launchApp(packageName);
+      // ⚠️ **false を黙って捨てない。** 戻れないと画面が残るが、走行中は
+      // 見ていないので気づけない。実機では `adb logcat | grep handsfree` で追える。
+      console.log(
+        `[handsfree] launchApp(${packageName}) returned ${launched} t=${Date.now()}`,
+      );
+    } catch (e) {
+      // 戻れなくても回答は鳴っている。ここで止める理由はない。
+      console.warn("failed to return to the map app", e);
     }
   }
 
@@ -950,6 +1089,9 @@ export default function Index() {
     conversationStartedAt.current = null;
     // 待っている途中でリセットされたら、その回答はもう要らない。
     pollAbort.current = true;
+    // 手で操作した時点でハンズフリーの一往復は終わり（上記 openSettings と同じ）。
+    launchedHandsFree.current = false;
+    wasHandsFree.current = false;
     // ⚠️ 録音中のリセットも起こりうる。捨てないとマイクを掴んだままになり、
     // タイマーが「捨てたはずの会話」に送信してしまう。
     discardRecording();
@@ -1003,7 +1145,11 @@ export default function Index() {
         </Pressable>
       ) : (
         <Pressable onPress={openSettings}>
-          <Text style={styles.settingsLink}>設定</Text>
+          <Text style={styles.settingsLink}>
+            {/* ⚠️ 応答後に戻るアプリは既定が「戻らない」。設定し忘れていると
+                ハンズフリーが完結しないので、ここで分かるようにする。 */}
+            {returnApp === null ? "設定（応答後に戻るアプリが未設定）" : "設定"}
+          </Text>
         </Pressable>
       )}
 

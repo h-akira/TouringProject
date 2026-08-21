@@ -6,6 +6,9 @@
       "@/*": [
         "./src/*"
       ],
+      "@/native/*": [
+        "./modules/*/src"
+      ],
       "@/assets/*": [
         "./assets/*"
       ]
