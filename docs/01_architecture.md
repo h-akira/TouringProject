@@ -56,7 +56,7 @@ flowchart LR
 
 | 処理 | 担当 | 使うもの |
 |---|---|---|
-| ハンズフリー起動 | アプリ（Androidのアシスタント） | `ACTION_VOICE_COMMAND` の intent-filter（インカムのボタンで起動） |
+| ハンズフリー起動 | アプリ | `ACTION_VOICE_COMMAND` の intent-filter（[01c](01c_app_client.md)）。⚠️ **既定アシスタントである必要は無い** |
 | 位置の取得（履歴を保持） | アプリ | expo-location |
 | 録音 | アプリ | `expo-audio`（無音検知つき） |
 | 音声 → テキスト（STT） | **AWS** | Lambda → Amazon Transcribe（§7） |
@@ -377,9 +377,11 @@ flowchart LR
 ## 12. 未決事項
 
 - [ ] **走行中（風切り音・エンジン音）でのSTTの実用性**。⚠️ **停車状態でしか確かめていない**
+- [ ] **走行中の無音検知の閾値**（⚠️ 推定値のまま。[01c](01c_app_client.md) §3）
 - [ ] **Usage Plan の閾値の妥当性**（いまの値は仮。実際の使い方を測って詰める）
 - [ ] Budgets の月額上限と、予算超過時の自動遮断の実装方式
-- [ ] エラー時の挙動（STT失敗・タイムアウト・利用停止中に何を音声で返すか）
+
+> 📌 **エラー時に何を音声で返すかは決着した**（[01c](01c_app_client.md) §5）。
 
 > Bedrockの実装を書く際は `claude-api` スキルを参照する（モデルIDは記憶に頼らない）。
 

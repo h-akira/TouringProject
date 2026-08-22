@@ -111,8 +111,11 @@ IDは `US-<優先度>.<連番>`。**連番は詰め直さない**（他ドキュ
 ## 7. 未確定事項
 
 - [ ] 走行中の騒音下でSTTがどこまで実用になるか（⚠️ **停車中は実用と確認済み**）
-- [ ] 停車中・低速時の「進行方向」の扱い（GPS2点が近すぎる場合）
+- [ ] 走行中の無音検知の閾値（⚠️ **いまの `-40dB` は推定値**。[01c](01c_app_client.md) §3）
 - [ ] コストが現実的な範囲に収まるか
+
+> 📌 **停車中・低速時の「進行方向」の扱いは決着した**（[01b](01b_heading.md) §3）。
+> **2点が近すぎる場合は方位を出さない**のが仕様。
 
 ---
 
@@ -172,10 +175,17 @@ def save_memo(text: str) -> str:
 | 画面のボタン | ❌ **不可**（法律） |
 
 > 📌 **実現方法は `ACTION_VOICE_COMMAND` を受けること。**
-> **インカムのボタンはアシスタントを起動するので、そこに自アプリを据える**
-> （端末の「デジタルアシスタント」に本アプリを選ぶ）。
-> ⚠️ **代償として Google Assistant とマップの音声入力を明け渡す**
-> （**音声案内は残る**）。検証の詳細は
-> [pre-research/handsfree/](../pre-research/handsfree/)。
+> インカムのボタンを押すとAndroidがこのIntentを発行するので、
+> **本アプリのActivityがintent-filterで受け取る**（[docs/01c](01c_app_client.md)）。
+>
+> 📌 **端末の「デジタルアシスタント」は Google のままでよい。**
+> `ACTION_VOICE_COMMAND` は**標準のIntent**なので、
+> **既定アシスタントのRoleを取らなくても受け取れる**（[adr/006](../adr/006_handsfree_launch_mechanism.md)）。
+> **Google Assistant もマップの音声入力も失われない。**
+>
+> ⚠️ **ただし初回だけ端末側の操作が要る。**
+> Google App が `VOICE_COMMAND` の**既定（`preferred activity`）として
+> 固定されている**と、intent-filterがあっても**常に無視される**。
+> `設定 > アプリ > Google > デフォルトをクリア` で解除する（[01c](01c_app_client.md) §2）。
 
 ⚠️ **どちらの手段でも Expo Development Build への移行が要る**（Expo Go では動かない）。

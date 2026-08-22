@@ -85,6 +85,16 @@ Alexaが候補としてあっても常に無視されていた
   実機の挙動から、`VOICE_COMMAND` の解決も結局「どのアプリがアシスタント関連の
   既定として選ばれているか」に影響される（`preferred activity` の存在）。
   完全に無関係というわけではなく、**既定を切り替える操作は依然として必要**。
+
+  > ⚠️ **改訂（2026-08-22）: この項は事実誤認だった。**
+  > **必要なのは `preferred activity` の解除**（`設定 > アプリ > Google >
+  > デフォルトをクリア`）**であって、アシスタントRoleの明け渡しではない。**
+  > 実機で**既定のデジタルアシスタントを Google のままにしたまま**、
+  > インカムのボタンで本アプリが起動することを確認した。
+  > 📌 **したがって [DECISION.md](../pre-research/handsfree/DECISION.md) §5.2 の
+  > 「マップの音声入力が失われる」という代償は、現行方式では発生しない**
+  > （あれは既定アシスタントを Alexa に切り替えた場合の実測）。
+  > 現在の設計は [docs/01c](../docs/01c_app_client.md) §2。
 - ⚠️ **実装がシンプルになった。** `VoiceInteractionService` +
   `VoiceInteractionSessionService` + `res/xml` のメタデータ + `recognitionService` の
   実機依存値、といった一式が丸ごと不要になり、`MainActivity` への

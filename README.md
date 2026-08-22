@@ -95,8 +95,10 @@ flowchart LR
 （US-2.04・ハンズフリー起動）は実機で成立を確認できた
 （[adr/006](adr/006_handsfree_launch_mechanism.md)・[adr/007](adr/007_return_to_map_after_answer.md)）。
 
-⚠️ **残るのは実走行での調整**（風切り音・エンジン音のなかで無音検知の閾値が妥当か）と、
-**Metro無しで動く単体ビルド**（いまは開発サーバーが要る＝Macから離れられない）。
+📌 **Metro無しで動く単体ビルド（release APK）も用意した**ので、
+**Macから離れて走れる**（[App/SETUP.md](App/SETUP.md)）。
+
+⚠️ **残るのは実走行での調整**（風切り音・エンジン音のなかで無音検知の閾値が妥当か）。
 
 進捗と残作業は [`.memory/`](.memory/)（開発中の覚え書き）にある。
 

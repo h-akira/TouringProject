@@ -1,8 +1,11 @@
 # 方式の検討と却下理由（US-2.04）
 
 > ⚠️ **実装時に一部が覆った。[adr/006](../../adr/006_handsfree_launch_mechanism.md) を読むこと。**
-> 「方式B」の**代償（Google Assistantを明け渡す）は今も有効**だが、
-> **実装は `VoiceInteractionService` ではなく `VOICE_COMMAND` のintent-filター**になった
+> ⚠️ **「方式Bの代償（Google Assistantを明け渡す）」は 2026-08-22 に事実誤認と判明した。**
+> **現行方式はアシスタントRoleを取らない**ので、Google Assistant もマップの音声入力も
+> **失われない**（必要なのは `preferred activity` の解除だけ。§5 は Alexa に
+> 切り替えた場合の実測として読むこと）。
+> **実装は `VoiceInteractionService` ではなく `VOICE_COMMAND` のintent-filter**になった
 > （インカムのボタンはBluetoothスタックが `VOICE_COMMAND` を送る別経路と実機で判明）。
 > 以下は 2026-08-16 時点の判断の記録。
 >
@@ -152,6 +155,9 @@ Android には**サードパーティがアシスタントになる正規の口*
 （[FINDINGS.md](FINDINGS.md) §7。**ユーザーが編集できる設定として公開されていない**）。
 
 ## 5. ⚠️ 代償の中身：Google Assistant を明け渡すとどうなるか
+
+> ⚠️ **現行方式では、この代償は発生しない**（2026-08-22）。
+> **以下は「既定アシスタントを入れ替えた場合」の実測**として読むこと。
 
 ### 5.1 アシスタントは端末に1つだけ
 
