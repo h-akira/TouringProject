@@ -86,7 +86,7 @@ cd App
 npx expo start
 ```
 
-**実機のアプリ（アイコン名「app」）を直接開くと、開発サーバーに自動で繋がる。**
+**実機のアプリ（アイコン名「Touring Assistant」）を直接開くと、開発サーバーに自動で繋がる。**
 QRコードやExpo Goは使わない。
 
 ⚠️ **`npx expo start` は対話型TUI。** AIエージェントにバックグラウンド実行させず、
@@ -121,9 +121,106 @@ AWS_PROFILE=touring aws apigateway get-api-key \
   1. 実機をUSB接続（`adb devices` で認識確認。**インカムのボタン試験は有線接続不要**、
      Wi-Fi経由の開発サーバー接続だけ繋がっていればよい）
   2. `cd App && npx expo start`
-  3. 実機のアプリ（アイコン名「app」）を開く。開発サーバーに自動接続される
+  3. 実機のアプリ（アイコン名「Touring Assistant」）を開く。開発サーバーに自動接続される
   4. しばらく間が空いていた場合、`npm install`（依存の変更を取り込む）と
      `npx expo run:android`（ネイティブ側の変更を取り込む）を念のため実行するとよい
+
+## 実走行用のビルド（Metro無しで動かす）← ツーリングに出る前に
+
+⚠️ **通常の Development Build は起動時に Metro（開発サーバー）へJSを取りに行く**ので、
+**Macから離れると起動しない。** バイクに乗るなら**JSを焼き込んだビルド**が要る。
+
+📌 **これは「配布」ではなく「自分が走るため」**（利用者は1人）。
+**署名やストア対応には踏み込まない。**
+
+### 作り方（release）
+
+```sh
+cd App
+# ⚠️ version を先に上げる（prebuild の後だと android/ に反映されない）
+ANDROID_HOME="$HOME/Library/Android/sdk" npx expo prebuild --platform android
+ANDROID_HOME="$HOME/Library/Android/sdk" ./android/gradlew -p android assembleRelease
+```
+
+⚠️ **`ANDROID_HOME` を明示する。** 非対話シェルには `~/.zshrc` が読まれず
+`SDK location not found` で失敗する。
+⚠️ **`.env` はビルド時に焼き込まれる**（`EXPO_PUBLIC_*`）ので、**ビルド前に正しいこと。**
+
+できるもの: `android/app/build/outputs/apk/release/app-release.apk`（約108MB・ビルド約9分）
+
+### 実機へ入れる
+
+**PCからコマンドで入れる**（`adb` がUSB経由でAPKを転送してインストールする）。
+
+```sh
+# ① 実機をUSB接続し、認識されているか確認
+adb devices
+# ② インストール（-r = 上書き）
+adb install -r android/app/build/outputs/apk/release/app-release.apk
+```
+
+⚠️ **スマホ側の操作が2つある**（「コマンドだけで完結」ではない）:
+
+| いつ | 何をするか |
+|---|---|
+| **初回のみ** | `設定 > 開発者向けオプション > USBデバッグ` を有効化（上記「動かす」章と同じ） |
+| **USBを挿したとき** | ⚠️ **「このパソコンからのUSBデバッグを許可しますか？」が実機に出たら「許可」を押す。** 「常に許可する」にチェックを入れると次回から出ない |
+
+⚠️ **許可を押すまで `adb devices` は `unauthorized` と表示され、インストールは失敗する:**
+
+```
+XXXXXXXX    device        ← 正常
+XXXXXXXX    unauthorized  ← ⚠️ 実機の画面で「許可」を押す
+（何も出ない）             ← USBが刺さっていない／ケーブルが充電専用
+```
+
+📌 **インストール自体に画面操作は要らない**（完了すると `Success` と出る）。
+APKファイルを実機で直接開く方法だと「提供元不明のアプリ」の許可が要るが、
+**`adb install` はその経路を通らない。**
+
+📌 **`-r` で上書きインストールできる。** `android/app/build.gradle` の release は
+**debugと同じキーストアを使う**ため署名が変わらず、
+**保存済みのAPIキー・VAD設定・戻り先アプリは消えない。**
+
+### ✅ release でも `console.log` は出る（確認済み）
+
+**走行中の閾値調整に要る `[vad]` / `[handsfree]` ログは release でも `adb logcat` に出る。**
+除去の経路が**どれも無い**ことを確認済み:
+
+| 経路 | 状態 |
+|---|---|
+| `babel.config.js` | **無し** |
+| `babel-plugin-transform-remove-console` | **未インストール** |
+| Metro の `drop_console` | 既定に**無し**（`metro-config` の `minifierConfig`） |
+| `minifyEnabled` | 既定 **false**（`gradle.properties` に指定無し） |
+
+ビルドしたAPKの中に文字列が残っていることも確認できる:
+
+```sh
+unzip -p android/app/build/outputs/apk/release/app-release.apk assets/index.android.bundle \
+  | grep -ac "sustained silence"   # 1 以上なら出る
+```
+
+⚠️ **`grep -a` が要る**（バンドルは**Hermesバイトコード**なのでバイナリ扱いになる）。
+⚠️ **`[vad]` で検索しない** — 角括弧は正規表現のため空振りする。
+
+### ビルド後に確かめること
+
+```sh
+APK=android/app/build/outputs/apk/release/app-release.apk
+# ① JSバンドルが入ったか（⚠️ これが本体。debug APK には入っていない）
+unzip -l "$APK" | grep index.android.bundle
+# ② 署名がdebugキーストアか（＝上書きインストールできる）
+"$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --print-certs "$APK" | grep "Signer #1"
+# ③ ハンズフリーの intent-filter と <queries> が生きているか
+"$ANDROID_HOME/build-tools/36.0.0/aapt2" dump xmltree --file AndroidManifest.xml "$APK" \
+  | grep -E "VOICE_COMMAND|queries"
+```
+
+⚠️ **最終確認はUSBを抜いて起動すること**（Metroを止めてから）。
+
+📌 **`expo-dev-client` は `package.json` に入れたままでよい。**
+release APKには**含まれない**ことを確認済み（Metroでの開発には引き続き要る）。
 
 ## 困ったとき
 
