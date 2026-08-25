@@ -49,6 +49,48 @@ def test_cardinal_bearings(north, east, expected):
     assert min(abs(bearing - expected), 360 - abs(bearing - expected)) < 1.0
 
 
+@pytest.mark.parametrize(
+    "latitude, expected",
+    [
+        (26.21, 41.9),  # Naha
+        (35.68, 39.1),  # Tokyo
+        (45.42, 35.1),  # Wakkanai
+    ],
+)
+def test_bearing_accounts_for_longitude_convergence(latitude, expected):
+    """Equal steps in degrees are not equal distances: a degree of longitude
+    shrinks by cos(latitude).
+
+    A flat-earth bearing would answer 45 for every latitude here. It would also
+    pass every due-north/east/south/west case above, because those degenerate
+    to a single axis - so this is the case that actually pins the spherical
+    formula down. The error is ~6 degrees in Tokyo and ~10 in Hokkaido, which
+    is enough to move the label the rider hears.
+    """
+    start = {"latitude": latitude, "longitude": 139.0}
+    end = {"latitude": latitude + 0.000636, "longitude": 139.000636}
+
+    assert calculate_bearing(start, end) == pytest.approx(expected, abs=0.1)
+
+
+def test_distance_shrinks_with_longitude_at_higher_latitude():
+    """The same step in degrees of longitude is a shorter distance further
+    north - the other half of the same effect."""
+    step = 0.001
+    naha = haversine_distance(
+        {"latitude": 26.21, "longitude": 127.68},
+        {"latitude": 26.21, "longitude": 127.68 + step},
+    )
+    wakkanai = haversine_distance(
+        {"latitude": 45.42, "longitude": 141.67},
+        {"latitude": 45.42, "longitude": 141.67 + step},
+    )
+
+    assert wakkanai < naha
+    # cos(45.42) / cos(26.21)
+    assert wakkanai / naha == pytest.approx(0.782, abs=0.01)
+
+
 def test_bearing_is_never_negative():
     # atan2 returns negative angles for westward travel; the caller expects
     # [0, 360) so that the compass lookup cannot index out of range.
