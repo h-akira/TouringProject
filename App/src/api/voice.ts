@@ -25,14 +25,32 @@ import type { VadSettings } from "@/api/vadSettings";
  * ⚠️ **`isMeteringEnabled` は無音検知（VAD）のために必須**。これが false だと
  * `getStatus().metering` が `undefined` のままになり、録音の自動終了が
  * 一切働かない（下記 SILENCE_* 参照）。
+ *
+ * ⚠️ **`audioSource` は設定から渡す**（`VadSettings.audioSource`）。
+ * 端末側の音の加工が変わり、**`metering` の見え方に効く**ため、
+ * 実機で比べられるようにしてある（FINDINGS.md §12）。
+ * ⚠️ **置き場所は `android` の下**（Android専用の設定なので）。
+ *
+ * 📌 **`useAudioRecorder` は options を `JSON.stringify` して比較し、
+ * 変われば録音オブジェクトを作り直す**（`ExpoAudio.js` の
+ * `useReleasingSharedObject`）。**設定を変えたその場で新しい値が効く。**
  */
-export const RECORDING_OPTIONS: RecordingOptions = {
-  ...RecordingPresets.HIGH_QUALITY,
-  sampleRate: 16000,
-  numberOfChannels: 1,
-  bitRate: 64000,
-  isMeteringEnabled: true,
-};
+export function recordingOptions(settings: VadSettings): RecordingOptions {
+  return {
+    ...RecordingPresets.HIGH_QUALITY,
+    sampleRate: 16000,
+    numberOfChannels: 1,
+    bitRate: 64000,
+    isMeteringEnabled: true,
+    android: {
+      // ⚠️ **プリセットの `android` を必ず展開する。** 丸ごと置き換えると
+      // `outputFormat`（mpeg4）と `audioEncoder`（aac）が落ち、M4A で録れなくなる。
+      ...RecordingPresets.HIGH_QUALITY.android,
+      // ⚠️ **`audioSource` は `android` の下**（トップレベルではない）。
+      audioSource: settings.audioSource,
+    },
+  };
+}
 
 /**
  * 音量を見に行く間隔。

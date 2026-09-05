@@ -21,7 +21,7 @@ import {
 import { loadApiKey, API_KEY_HEADER } from "@/api/apiKey";
 import * as Speech from "expo-speech";
 import {
-  RECORDING_OPTIONS,
+  recordingOptions,
   METERING_INTERVAL_MS,
   AUDIO_MODE_RECORDING,
   AUDIO_MODE_PLAYBACK,
@@ -243,8 +243,6 @@ export default function Index() {
   // ⚠️ 保管は expo-secure-store で、.env には置かない（src/api/apiKey.ts）。
   const [apiKey, setApiKey] = useState<string | null>(null);
 
-  // 声で質問するための録音（US-2.01）。形式は M4A（src/api/voice.ts）。
-  const recorder = useAudioRecorder(RECORDING_OPTIONS);
   const [recording, setRecording] = useState(false);
 
   // ⚠️ **録音中かどうかの判定は必ずこちらを見る。** state だけだと、
@@ -296,6 +294,12 @@ export default function Index() {
   // 設定を変えても次の録音まで反映されない。表示用は下の state を使う。
   const vadRef = useRef<VadSettings>(DEFAULT_VAD_SETTINGS);
   const [vad, setVad] = useState<VadSettings>(DEFAULT_VAD_SETTINGS);
+
+  // 声で質問するための録音（US-2.01）。形式は M4A（src/api/voice.ts）。
+  // ⚠️ **`audioSource` が設定で変わる**ので、保存済みの設定から組み立てる。
+  // `useAudioRecorder` は options が変われば録音オブジェクトを作り直すため、
+  // 設定画面で変えた値がそのまま効く（FINDINGS.md §12）。
+  const recorder = useAudioRecorder(recordingOptions(vad));
 
   // ハンズフリー起動（US-2.04）。インカムのボタンを押すと、Bluetoothスタックが
   // 送る ACTION_VOICE_COMMAND を MainActivity（ネイティブ側）が deep link に

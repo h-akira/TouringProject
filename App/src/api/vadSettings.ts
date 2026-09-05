@@ -14,6 +14,7 @@
  *   3. 端末に保存された値（設定画面で入れたもの）← **最優先**
  */
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import type { RecordingSource } from "expo-audio";
 
 /** 保存先のキー名。⚠️ 変えると保存済みの設定が読めなくなる（既定値に戻る）。 */
 const VAD_STORE_KEY = "touring.vadSettings";
@@ -32,7 +33,59 @@ export type VadSettings = {
    * ことを条件にするため、無言のままだとこの上限でしか止まらない。
    */
   maxRecordingMs: number;
+  /**
+   * 録音の用途（Androidの `MediaRecorder.AudioSource`）。
+   *
+   * ⚠️ **端末側の音の加工が変わる。** `metering` の元になる
+   * `MediaRecorder.maxAmplitude` の見え方に効くため、**設定として切り替えられる**
+   * ようにしてある（FINDINGS.md §12）。
+   *
+   * ⚠️ **エンジン始動中は `metering` が 0 dBFS に飽和して無音検知が働かない。**
+   * AGC（自動ゲイン調整）が原因なら、**AGCが切られる `voice_recognition`**
+   * で解ける可能性がある。どれが効くかは**実機で試すしかない**。
+   */
+  audioSource: RecordingSource;
 };
+
+/**
+ * 選べる録音の用途と、その説明。**設定画面の選択肢もこれを使う**
+ * （並びと文言を1箇所に持つ）。
+ *
+ * ⚠️ **`RecordingSource` の全部は並べない。** `camcorder`（カメラ向き）
+ * `remote_submix`（端末の再生音を録る）`voice_performance`（低遅延の実演向け）は
+ * **この用途に無関係**なので、迷わせないために出さない。
+ */
+export const AUDIO_SOURCE_CHOICES: readonly {
+  value: RecordingSource;
+  label: string;
+  hint: string;
+}[] = [
+  {
+    value: "mic",
+    label: "mic（既定）",
+    hint: "汎用のマイク。加工が少ない。⚠️ エンジン始動中に飽和したのはこれ",
+  },
+  {
+    value: "voice_recognition",
+    label: "voice_recognition",
+    hint: "音声認識向け。⚠️ AGC（自動ゲイン調整）が切られるので本命",
+  },
+  {
+    value: "voice_communication",
+    label: "voice_communication",
+    hint: "通話向け。ノイズ抑制とエコー除去。⚠️ AGCは効いたまま",
+  },
+  {
+    value: "unprocessed",
+    label: "unprocessed",
+    hint: "一切加工しない生の音。⚠️ 比較のための対照",
+  },
+];
+
+/** 保存された値が選択肢のどれかであること。⚠️ 未知の値は既定に落とす。 */
+function isAudioSource(value: unknown): value is RecordingSource {
+  return AUDIO_SOURCE_CHOICES.some((choice) => choice.value === value);
+}
 
 /** 数値の環境変数を読む。未設定・数値でない場合は既定値。 */
 function envNumber(raw: string | undefined, fallback: number): number {
@@ -57,6 +110,13 @@ export const DEFAULT_VAD_SETTINGS: VadSettings = {
   durationMs: envNumber(process.env.EXPO_PUBLIC_SILENCE_DURATION_MS, 3_000),
   graceMs: envNumber(process.env.EXPO_PUBLIC_SILENCE_GRACE_MS, 5_000),
   maxRecordingMs: envNumber(process.env.EXPO_PUBLIC_MAX_RECORDING_MS, 30_000),
+  /**
+   * ⚠️ **既定は `mic`**（指定しなかったときの `expo-audio` の既定と同じ）。
+   * **飽和したのはこの値**なので、実機で他を試して当たりが出たら既定を変える。
+   */
+  audioSource: isAudioSource(process.env.EXPO_PUBLIC_AUDIO_SOURCE)
+    ? process.env.EXPO_PUBLIC_AUDIO_SOURCE
+    : "mic",
 };
 
 /**
@@ -93,7 +153,7 @@ function clamp(value: number, min: number, max: number): number {
  */
 export function normalizeVadSettings(raw: unknown): VadSettings {
   const source = (raw ?? {}) as Partial<Record<keyof VadSettings, unknown>>;
-  const pick = (key: keyof VadSettings): number => {
+  const pick = (key: keyof typeof VAD_LIMITS): number => {
     const value = Number(source[key]);
     if (!Number.isFinite(value)) return DEFAULT_VAD_SETTINGS[key];
     const limit = VAD_LIMITS[key];
@@ -104,6 +164,10 @@ export function normalizeVadSettings(raw: unknown): VadSettings {
     durationMs: pick("durationMs"),
     graceMs: pick("graceMs"),
     maxRecordingMs: pick("maxRecordingMs"),
+    // ⚠️ 数値ではないので pick を通せない（選択肢のどれかであることだけ見る）。
+    audioSource: isAudioSource(source.audioSource)
+      ? source.audioSource
+      : DEFAULT_VAD_SETTINGS.audioSource,
   };
 }
 

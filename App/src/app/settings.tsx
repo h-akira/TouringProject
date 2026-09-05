@@ -18,10 +18,11 @@ import {
   useAudioRecorder,
   requestRecordingPermissionsAsync,
   setAudioModeAsync,
+  type RecordingSource,
 } from "expo-audio";
 import { loadApiKey, saveApiKey, clearApiKey } from "@/api/apiKey";
 import {
-  RECORDING_OPTIONS,
+  recordingOptions,
   METERING_INTERVAL_MS,
   AUDIO_MODE_RECORDING,
   AUDIO_MODE_PLAYBACK,
@@ -34,6 +35,7 @@ import {
 } from "@/api/returnApp";
 import AppForeground from "@/native/app-foreground";
 import {
+  AUDIO_SOURCE_CHOICES,
   DEFAULT_VAD_SETTINGS,
   VAD_LIMITS,
   loadVadSettings,
@@ -101,7 +103,10 @@ export default function Settings() {
 
   // 音量の実測表示。⚠️ **これが無いと閾値を勘で決めることになる。**
   // 停車中にエンジンをかけたまま値を見れば、走る前に当たりをつけられる。
-  const meterRecorder = useAudioRecorder(RECORDING_OPTIONS);
+  // ⚠️ **`audioSource` を切り替えたら、その場で測り直せること**が要件
+  // （実機で比べるための画面なので、保存して開き直す必要があると比較にならない）。
+  // `useAudioRecorder` は options が変われば録音オブジェクトを作り直す。
+  const meterRecorder = useAudioRecorder(recordingOptions(vad));
   const [monitoring, setMonitoring] = useState(false);
   const [meterDb, setMeterDb] = useState<number | null>(null);
 
@@ -253,6 +258,32 @@ export default function Settings() {
     return () => stopMonitorRef.current();
   }, []);
 
+  /**
+   * 録音の用途（`audioSource`）を選ぶ。
+   *
+   * ⚠️ **選んだ時点で保存する**（「保存」ボタンを待たない）。
+   * **測り比べるための設定**なので、選ぶ→測る→選ぶ、を続けて行えないと使えない。
+   * 他の項目（数値の入力欄）とは性質が違うため、あえて扱いを分ける。
+   *
+   * ⚠️ **測定中に切り替えたら測り直す。** 録音オブジェクトが作り直されるので、
+   * 掴んだままのマイクを一度離さないと新しい値では測れない。
+   */
+  async function onSelectAudioSource(value: RecordingSource) {
+    const wasMonitoring = monitoring;
+    if (wasMonitoring) stopMonitor();
+    try {
+      const saved = await saveVadSettings({ ...vad, audioSource: value });
+      setVad(saved);
+      setVadMessage(`録音の用途を ${value} にしました`);
+    } catch (e) {
+      setVadMessage("保存に失敗しました: " + String(e));
+      return;
+    }
+    // ⚠️ **すぐには測り直さない。** 新しい options で録音オブジェクトが
+    // 作られるのは次のレンダーなので、この場で始めると古い方を掴む。
+    // 利用者にもう一度「測る」を押してもらう（下の hint で促す）。
+  }
+
   async function onSaveVad() {
     // 秒で受けてミリ秒に直す。数値でない入力は保存済みの値を据え置く。
     const parsed = normalizeVadSettings({
@@ -260,6 +291,8 @@ export default function Settings() {
       durationMs: Number(durationSec) * 1000,
       graceMs: Number(graceSec) * 1000,
       maxRecordingMs: Number(maxRecordingSec) * 1000,
+      // ⚠️ **入力欄には無いので、いまの値を持ち回る**（落とすと既定に戻る）。
+      audioSource: vad.audioSource,
     });
     try {
       const saved = await saveVadSettings(parsed);
@@ -347,6 +380,32 @@ export default function Settings() {
         話し終えて静かになったら、自動で録音を止めて送ります。
         うまく止まらない・途中で切れる場合はここで調整してください。
       </Text>
+
+      {/* ⚠️ **録音の用途（audioSource）。** エンジン始動中に metering が
+          0 dBFS に飽和して無音検知が働かない問題の切り分け用
+          （pre-research/handsfree/FINDINGS.md §12）。
+          **端末側の音の加工が変わる**ので、実機で測り比べる。 */}
+      <Text style={styles.fieldLabel}>録音の用途</Text>
+      <Text style={styles.hint}>
+        ⚠️ エンジンをかけると音量が 0 dB に張り付き、話しても変わらなくなります。
+        これを切り替えると直る可能性があります。選ぶとすぐ保存されるので、
+        そのつど下の「いまの音量を測る」で測り比べてください。
+      </Text>
+      {AUDIO_SOURCE_CHOICES.map((choice) => (
+        <Pressable
+          key={choice.value}
+          style={[
+            styles.appRow,
+            vad.audioSource === choice.value && styles.appRowSelected,
+          ]}
+          onPress={() => void onSelectAudioSource(choice.value)}
+        >
+          <Text style={styles.appRowText}>
+            {vad.audioSource === choice.value ? "◉" : "○"}　{choice.label}
+          </Text>
+          <Text style={styles.hint}>{choice.hint}</Text>
+        </Pressable>
+      ))}
 
       {/* 実測値を見ながら決めるための表示。⚠️ **勘で決めさせない。** */}
       <View style={styles.meterCard}>
