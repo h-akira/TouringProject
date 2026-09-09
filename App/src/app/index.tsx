@@ -22,23 +22,17 @@ import { loadApiKey, API_KEY_HEADER } from "@/api/apiKey";
 import * as Speech from "expo-speech";
 import {
   recordingOptions,
-  METERING_INTERVAL_MS,
   AUDIO_MODE_RECORDING,
   AUDIO_MODE_PLAYBACK,
-  METERING_WARMUP_MS,
   MIN_RECORDING_MS,
-  SUSTAINED_SILENCE_MS,
-  isSilent,
-  shouldStopForSilence,
-  shouldDiscardAsNoise,
   sendVoiceQuestion,
   type VoiceLocation,
 } from "@/api/voice";
 import {
-  DEFAULT_VAD_SETTINGS,
-  loadVadSettings,
-  type VadSettings,
-} from "@/api/vadSettings";
+  DEFAULT_RECORDING_SETTINGS,
+  loadRecordingSettings,
+  type RecordingSettings,
+} from "@/api/recordingSettings";
 import { loadReturnApp } from "@/api/returnApp";
 import AppForeground from "@/native/app-foreground";
 import type {
@@ -262,53 +256,29 @@ export default function Index() {
   // 上限に達したら自動で送信に回す。
   const recordingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // 無音検知（VAD）。話し終えたら自動で録音を止めて送るための一式。
-  // ⚠️ **これが US-2.04 の「終了側」。** 起動はインカムのボタンで自動化できたが、
-  // 停止が画面操作のままでは走行中に使えない（手が塞がっていて画面も見ない）。
-  const silenceTimer = useRef<ReturnType<typeof setInterval> | null>(null);
-  // 連続した無音が始まった時刻。声が乗った時点で null に戻す（＝計り直し）。
-  const silentSince = useRef<number | null>(null);
-  // 録音を始めた時刻。
-  // ⚠️ **無音検知のループ（`startSilenceDetection`）の外でも要る。**
-  // ボタン再押しで終える方式（adr/008）では**ループを回さない**ので、
-  // クロージャの `startedAt` に頼れない。**短すぎる録音を弾く**ために使う。
+  // 録音を始めた時刻。⚠️ **短すぎる録音を弾く**ために使う
+  // （インカムのボタンのチャタリング対策。adr/008）。
   const recordingStartedAt = useRef<number | null>(null);
-  // この録音で一度でも声が乗ったか。⚠️ **これが無いと、話し始めが遅れただけで
-  // 空の録音が送られる**（src/api/voice.ts の shouldStopForSilence 参照）。
-  const hasSpoken = useRef(false);
-  // この録音で一度でも無音になったか。⚠️ **騒音の検知に使う。**
-  // 一度も静かにならないまま上限に達したら、環境音が閾値を超え続けている
-  // ＝人の声を拾えていないので送らない（src/api/voice.ts の
-  // shouldDiscardAsNoise）。⚠️ hasSpoken では区別できない（騒音でも真になる）。
-  const everSilent = useRef(false);
-  // 直近の音量。上限に達した時点の値を判定に使うので ref で持つ。
-  const lastMetering = useRef<number | undefined>(undefined);
-  // 録音中に見えた音量の範囲。⚠️ **実機で挙動を追うための記録**
-  // （「無音と判定された瞬間があったか」を後から確かめる材料）。
-  const minMeteringSeen = useRef<number | undefined>(undefined);
-  const maxMeteringSeen = useRef<number | undefined>(undefined);
-
-  // 画面に出す音量（dBFS）。⚠️ **閾値を実走行で詰めるための表示**で、
-  // 走行中に見るものではない（停車中に値の出方を確かめる用）。
-  const [meterDb, setMeterDb] = useState<number | null>(null);
   // 自動送信までの残り秒数。⚠️ **走行中に画面を見る唯一の場面がここ。**
   // 「2回目を押さずに待つ」ときに**あと何秒かが分からないと待てない**
   // （押すべきか待つべきかを判断できない）。null なら録音していない。
   const [remainingSec, setRemainingSec] = useState<number | null>(null);
   const countdownTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // 無音検知の閾値（設定画面で変えられる。src/api/vadSettings.ts）。
-  // ⚠️ **ref で持つ。** 判定は setInterval の中で走るので、state だけだと
+  // 録音の設定（設定画面で変えられる。src/api/recordingSettings.ts）。
+  // ⚠️ **ref で持つ。** 上限タイマーは setTimeout の中で使うので、state だけだと
   // 「録音を始めたときのレンダー」の値をクロージャが captured したままになり、
   // 設定を変えても次の録音まで反映されない。表示用は下の state を使う。
-  const vadRef = useRef<VadSettings>(DEFAULT_VAD_SETTINGS);
-  const [vad, setVad] = useState<VadSettings>(DEFAULT_VAD_SETTINGS);
+  const settingsRef = useRef<RecordingSettings>(DEFAULT_RECORDING_SETTINGS);
+  const [settings, setSettings] = useState<RecordingSettings>(
+    DEFAULT_RECORDING_SETTINGS,
+  );
 
   // 声で質問するための録音（US-2.01）。形式は M4A（src/api/voice.ts）。
   // ⚠️ **`audioSource` が設定で変わる**ので、保存済みの設定から組み立てる。
   // `useAudioRecorder` は options が変われば録音オブジェクトを作り直すため、
   // 設定画面で変えた値がそのまま効く（FINDINGS.md §12）。
-  const recorder = useAudioRecorder(recordingOptions(vad));
+  const recorder = useAudioRecorder(recordingOptions(settings));
 
   // ハンズフリー起動（US-2.04）。インカムのボタンを押すと、Bluetoothスタックが
   // 送る ACTION_VOICE_COMMAND を MainActivity（ネイティブ側）が deep link に
@@ -353,20 +323,21 @@ export default function Index() {
         const stored = await loadApiKey();
         if (!cancelled) setApiKey(stored);
       })();
-      // 無音検知の閾値も同じタイミングで読み直す。
+      // 録音の設定も同じタイミングで読み直す。
       // ⚠️ **設定画面で変えた値が、戻った直後の録音から効くようにするため。**
       (async () => {
-        const stored = await loadVadSettings();
+        const stored = await loadRecordingSettings();
         if (cancelled) return;
-        vadRef.current = stored;
-        setVad(stored);
+        settingsRef.current = stored;
+        setSettings(stored);
       })();
       // 戻り先のアプリも同じタイミングで読み直す。
       (async () => {
         const stored = await loadReturnApp();
         if (cancelled) return;
-        returnAppRef.current = stored;
-        setReturnApp(stored);
+        // ⚠️ **オフなら戻さない**（選択は残っていても使わない）。
+        returnAppRef.current = stored.enabled ? stored.packageName : null;
+        setReturnApp(stored.enabled ? stored.packageName : null);
       })();
       return () => {
         cancelled = true;
@@ -572,8 +543,8 @@ export default function Index() {
   /**
    * 自動送信までの残り秒数を数える（adr/008・方式D）。
    *
-   * ⚠️ **無音検知とは独立に回す。** あちらは既定で切ってあるので、
-   * そこに相乗りさせると**走行中はカウントダウンも出なくなる。**
+   * ⚠️ **これが「あと何秒で送られるか」の唯一の手がかり。**
+   * ボタンを押さずに待つときは、この数字を見て判断する。
    *
    * 📌 **1秒ごとで足りる**（秒単位でしか表示しないため）。
    */
@@ -599,115 +570,11 @@ export default function Index() {
   }
 
   /**
-   * 無音検知を止める。
-   *
-   * ⚠️ **録音が終わる経路すべてから呼ぶこと。** 止め忘れると、録音していない
-   * のに `getStatus()` を叩き続け、次の録音の判定にも古い状態が残る。
-   */
-  function stopSilenceDetection() {
-    if (silenceTimer.current) {
-      clearInterval(silenceTimer.current);
-      silenceTimer.current = null;
-    }
-    silentSince.current = null;
-    // ⚠️ 次の録音に持ち越さない（持ち越すと、話す前に送信される状態に戻る）。
-    hasSpoken.current = false;
-    everSilent.current = false;
-    lastMetering.current = undefined;
-    minMeteringSeen.current = undefined;
-    maxMeteringSeen.current = undefined;
-    setMeterDb(null);
-  }
-
-  /**
-   * 無音検知を始める（US-2.04の「終了側」）。
-   *
-   * 一定時間（SILENCE_DURATION_MS）声が途切れたら、話し終えたとみなして
-   * 録音を止め送信する。**これで走行中に画面へ触れる必要がなくなる。**
-   *
-   * ⚠️ **`getStatus()` を読むのはこのループだけにすること。**
-   * Androidの `MediaRecorder.maxAmplitude` は「前回読んでからの最大値」で、
-   * **読むとリセットされる**。他の場所（`useAudioRecorderState` 等）からも
-   * 読むと値を奪い合い、双方が実際より小さい音量を見て誤検知する。
-   */
-  function startSilenceDetection() {
-    // 二重起動を防ぐ（前の録音のループが残っていると判定が混ざる）。
-    stopSilenceDetection();
-    const startedAt = Date.now();
-
-    silenceTimer.current = setInterval(() => {
-      // 録音が既に終わっていたら、後片付けをして抜ける。
-      // ⚠️ **タイマーは自分では止まらない。** 送信経路が止め忘れても、
-      // ここで気づいて確実に止める。
-      if (!recordingRef.current) {
-        stopSilenceDetection();
-        return;
-      }
-
-      const metering = recorder.getStatus().metering;
-      // ⚠️ **録音開始直後の値は捨てる。** `maxAmplitude` は「前回読んでからの
-      // 最大値」なので、1回目には材料が無く 0（＝`-160`）になりやすい。
-      // 実機ログで 109ms 時点の `-160` を確認済み（src/api/voice.ts）。
-      if (Date.now() - startedAt < METERING_WARMUP_MS) return;
-      lastMetering.current = metering;
-      if (metering !== undefined) {
-        // 見えた範囲を控える（判定がなぜそうなったかを後から追うため）。
-        const min = minMeteringSeen.current;
-        const max = maxMeteringSeen.current;
-        if (min === undefined || metering < min) minMeteringSeen.current = metering;
-        if (max === undefined || metering > max) maxMeteringSeen.current = metering;
-      }
-      setMeterDb(metering ?? null);
-
-      // ⚠️ ref から読む（設定画面で変えた値をその場で反映するため）。
-      const settings = vadRef.current;
-      const now = Date.now();
-      if (isSilent(metering, settings)) {
-        // 無音の始まりを覚える（既に計測中ならそのまま continue）。
-        if (silentSince.current === null) silentSince.current = now;
-        // ⚠️ **1サンプルでは「静かになった」と認めない。**
-        // `-160` は測定値ではなく番兵（読み取り失敗・開始直後にも出る）なので、
-        // 単発で騒音ガードを無効化させない。一定時間続いて初めて数える。
-        if (
-          !everSilent.current &&
-          now - silentSince.current >= SUSTAINED_SILENCE_MS
-        ) {
-          console.log(
-            `[vad] sustained silence at ${now - startedAt}ms: ` +
-              `metering=${metering} threshold=${settings.thresholdDb}`,
-          );
-          everSilent.current = true;
-        }
-      } else {
-        // 声が乗った ＝ まだ話している。無音の計測をやり直す。
-        silentSince.current = null;
-        // 一度立てたら録音が終わるまで下ろさない（「話し始めた」の記録）。
-        hasSpoken.current = true;
-      }
-
-      const silentForMs =
-        silentSince.current === null ? 0 : now - silentSince.current;
-      if (
-        shouldStopForSilence(
-          metering,
-          silentForMs,
-          now - startedAt,
-          hasSpoken.current,
-          settings,
-        )
-      ) {
-        // 話し終えたとみなす。⚠️ 停止と送信は分けない（既存の方針どおり）。
-        void stopRecordingAndSend();
-      }
-    }, METERING_INTERVAL_MS);
-  }
-
-  /**
    * 録音を始める（US-2.01）。
    *
    * ⚠️ **上限で自動的に止める。** 走行中は止める操作を忘れやすく、
    * 押し忘れれば上限まで録り続けて**質問ごと失われる**（src/api/voice.ts）。
-   * 通常は無音検知が先に働くので、この上限は最後の砦。
+   * 📌 **通常はインカムのボタンを押して終える**ので、この上限は押し忘れの受け皿。
    */
   async function startRecording(): Promise<boolean> {
     // ref で見る。連打されたときも、再レンダーを待たずに2度目を弾ける。
@@ -732,36 +599,14 @@ export default function Index() {
       setRecording(true);
       setAnswer(null);
       recordingTimer.current = setTimeout(() => {
-        // 上限に達した。⚠️ **中身によって送るか捨てるかを分ける。**
-        // 一度も静かにならなかった＝騒音に埋もれて人の声を拾えていないので、
-        // 送っても意味不明な回答が返るだけ（しかも課金される）。
-        // ⚠️ 判定材料をログに出す（実機で挙動を追えるようにするため）。
-        console.log(
-          `[vad] max reached: everSilent=${everSilent.current} ` +
-            `lastMetering=${lastMetering.current} ` +
-            `minSeen=${minMeteringSeen.current} maxSeen=${maxMeteringSeen.current} ` +
-            `threshold=${vadRef.current.thresholdDb}`,
-        );
-        // ⚠️ **無音検知を使わないなら騒音ガードも通さない。**
-        // ガードは「一度も静かにならなかった」を騒音の証拠にするが、
-        // **走行中はエンジン音で常に飽和していて必ず成立する**ので、
-        // 通すと**すべての録音を捨てる**（FINDINGS.md §14〜§15）。
-        if (
-          vadRef.current.useSilenceDetection &&
-          shouldDiscardAsNoise(everSilent.current, lastMetering.current)
-        ) {
-          discardAsNoise();
-          return;
-        }
-        // 押し忘れ、または長い質問。録れているぶんで送る。
+        // 上限に達した。⚠️ **必ず送る。**
+        // 押し忘れかもしれないし、長い質問かもしれないが、
+        // **どちらにせよ捨てると質問ごと失われる**（adr/008）。
+        console.log("[recording] max reached -> send");
         void stopRecordingAndSend();
-      }, vadRef.current.maxRecordingMs);
-      // 自動送信までの残り秒数を出す（方式D）。⚠️ **上限タイマーと同じ値**を渡す。
-      startCountdown(vadRef.current.maxRecordingMs);
-      // 話し終えたら自動で送るための監視を始める（US-2.04の終了側）。
-      // ⚠️ **走行中は使えない**ので既定では回さない。その場合の出口は
-      // インカムのボタン再押し（方式C）と上限（方式D）。
-      if (vadRef.current.useSilenceDetection) startSilenceDetection();
+      }, settingsRef.current.maxRecordingMs);
+      // 自動送信までの残り秒数を出す。⚠️ **上限タイマーと同じ値**を渡す。
+      startCountdown(settingsRef.current.maxRecordingMs);
       return true;
     } catch (e) {
       recordingRef.current = false;
@@ -774,8 +619,7 @@ export default function Index() {
         clearTimeout(recordingTimer.current);
         recordingTimer.current = null;
       }
-      // 開始に失敗したら監視も残さない（録音していないのに叩き続けるため）。
-      stopSilenceDetection();
+      // 開始に失敗したらカウントダウンも残さない。
       stopCountdown();
       setAnswer("録音を開始できませんでした: " + String(e));
       return false;
@@ -802,8 +646,8 @@ export default function Index() {
     );
     void (async () => {
       // 方式C: **録音中にもう一度押されたら「話し終えた」とみなして送る**
-      // （US-2.04の終了側。⚠️ **音量ベースのVADは走行中に成立しない**ので、
-      // 音を一切見ないこの経路が必要。FINDINGS.md §14〜§15）。
+      // （US-2.04の終了側。⚠️ **音量では終話を判定できない**ので、
+      // 音を一切見ないこの経路で終える。adr/008）。
       // ⚠️ **startRecording より前に見る。** あちらは `recordingRef` で
       // 弾くので、ここを通さないと「いま応答中です」と読み上げてしまう。
       if (recordingRef.current) {
@@ -862,8 +706,7 @@ export default function Index() {
       recordingTimer.current = null;
     }
     // ⚠️ **早期returnより前に止める。** 録音フラグが既に下りていても
-    // 監視だけ残っていることがあり、残すと `getStatus()` を叩き続ける。
-    stopSilenceDetection();
+    // カウントダウンだけ残っていることがある。
     stopCountdown();
     if (!recordingRef.current) return;
     recordingRef.current = false;
@@ -889,47 +732,6 @@ export default function Index() {
   }
 
   /**
-   * 騒音で聞き取れなかった録音を、送らずに捨てて利用者に知らせる。
-   *
-   * 📌 **判定材料の `[vad]` ログは意図的に残している。** 走行中に閾値が
-   * 合わなかったとき、`adb logcat | grep vad` で `everSilent` と `minSeen` を
-   * 見れば原因が分かる。⚠️ 出すのは音量とフラグだけで、位置情報は含めない。
-   *
-   * ⚠️ **走行中は画面を見ないので、黙って捨ててはいけない。**
-   * 無反応だと「アプリが落ちた」「ボタンを押せていない」と区別がつかず、
-   * 結局画面を見に行くことになる（＝ハンズフリーの趣旨に反する）。
-   *
-   * ⚠️ **読み上げは端末内蔵のTTS（expo-speech）を使う。**
-   * 回答の読み上げはPolly（S3経由の署名付きURL）だが、
-   * **通知にあれを使うのは筋が悪い**（AWSに行く必要が無いうえ、
-   * 電波が切れている場面でこそ鳴らしたい）。expo-speech はオフラインで動く。
-   */
-  function discardAsNoise() {
-    discardRecording();
-    const message =
-      "周囲の音が大きく、聞き取れませんでした。もう一度お話しください。";
-    setAnswer(message);
-    try {
-      // ⚠️ **読み上げ切ってから戻る。** 回答（Polly）は背面でも鳴り続けるが、
-      // ⚠️ **端末内蔵TTSは別系統**で、背面に回した時点で切られうる。
-      // ここは「やり直してほしい」という短い通知なので、**最後まで聞こえること**
-      // を優先する（走行中は画面を見ないので、これが唯一の手がかりになる）。
-      // ⚠️ **失敗しても必ず戻す。** 戻さないとマップが引っ込んだままになる。
-      Speech.speak(message, {
-        language: "ja-JP",
-        onDone: () => void returnToMapIfHandsFree(),
-        onStopped: () => void returnToMapIfHandsFree(),
-        onError: () => void returnToMapIfHandsFree(),
-      });
-    } catch (e) {
-      // 鳴らせなくても画面には出ているので、ここで止めない。
-      console.warn("failed to announce the noise error", e);
-      // ⚠️ 読み上げが始まらなかった＝コールバックも来ないので、ここで戻す。
-      void returnToMapIfHandsFree();
-    }
-  }
-
-  /**
    * 設定画面へ移る。
    *
    * ⚠️ **移る前に録音を捨てる。** `router.push` ではこの画面が
@@ -950,7 +752,7 @@ export default function Index() {
   /** 録音を止めて送る。停止と送信を分けない（走行中の操作を1つに保つ）。 */
   async function stopRecordingAndSend() {
     // ⚠️ ref で見る（上記参照）。state を見ると自動送信が素通りする。
-    // 無音検知・上限タイマー・画面のボタンの3経路から呼ばれるが、
+    // インカムのボタン再押し・上限タイマー・画面のボタンの3経路から呼ばれるが、
     // **最初の1回だけが通る**（ここで ref を倒すため二重送信にならない）。
     if (!recordingRef.current) return;
     recordingRef.current = false;
@@ -959,7 +761,6 @@ export default function Index() {
       clearTimeout(recordingTimer.current);
       recordingTimer.current = null;
     }
-    stopSilenceDetection();
     stopCountdown();
     setRecording(false);
 
@@ -1241,7 +1042,8 @@ export default function Index() {
       <Text style={styles.status}>{status}</Text>
 
       {/* キーが無いと質問できないので、その場合だけ目立たせて設定へ促す。
-          設定済みなら小さなリンクに留める（走行中に押す画面ではない）。 */}
+          ⚠️ **設定済みでもボタンのまま置く。** ツーリング中に停車して開く
+          ことがあり、⚠️ **小さなリンクだと手袋のまま押せない。** */}
       {apiKey === null ? (
         <Pressable
           style={styles.setupBanner}
@@ -1252,11 +1054,11 @@ export default function Index() {
           </Text>
         </Pressable>
       ) : (
-        <Pressable onPress={openSettings}>
-          <Text style={styles.settingsLink}>
+        <Pressable style={styles.settingsButton} onPress={openSettings}>
+          <Text style={styles.settingsButtonText}>
             {/* ⚠️ 応答後に戻るアプリは既定が「戻らない」。設定し忘れていると
                 ハンズフリーが完結しないので、ここで分かるようにする。 */}
-            {returnApp === null ? "設定（応答後に戻るアプリが未設定）" : "設定"}
+            {returnApp === null ? "⚙ 設定（戻るアプリが未設定）" : "⚙ 設定"}
           </Text>
         </Pressable>
       )}
@@ -1321,23 +1123,8 @@ export default function Index() {
                 {remainingSec === null ? "—" : `あと ${remainingSec} 秒`}
               </Text>
               <Text style={styles.recordingNote}>
-                {vad.useSilenceDetection
-                  ? `話し終えるか、ボタンをもう一度押すと送信（${(vad.durationMs / 1000).toFixed(1)}秒の無音でも送信）`
-                  : "ボタンをもう一度押すと送信。押さなくても0秒で自動送信"}
+                インカムのボタンをもう一度押すと送信。押さなくても0秒で自動送信
               </Text>
-              {/* ⚠️ **閾値を実走行で詰めるための表示。** 走行中に見るものではなく、
-                  停車中に「喋ったとき／黙ったとき」の値を確かめるために出す。
-                  値がズレていたら設定画面で直す（そちらにも測定機能がある）。
-                  ⚠️ **無音検知を切っているときは出さない。** 閾値が判定に
-                  使われないので、出すと**効いていない値を見て悩む**ことになる。 */}
-              {vad.useSilenceDetection && (
-                <Text style={styles.note}>
-                  {meterDb === null
-                    ? "音量: 測定できません"
-                    : `音量 ${meterDb.toFixed(1)} dB / 閾値 ${vad.thresholdDb} dB` +
-                      `（${isSilent(meterDb, vad) ? "無音" : "音あり"}）`}
-                </Text>
-              )}
             </>
           )}
         </View>
@@ -1425,7 +1212,18 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   setupBannerText: { color: "#FF9E7A", fontSize: 14, textAlign: "center" },
-  settingsLink: { fontSize: 13, color: "#888899" },
+  /**
+   * 設定ボタン。⚠️ **13pxのリンクだったが、停車中に押せないことがあった。**
+   * 📌 **手袋のまま押せる大きさ**にする（走行はしないが、路肩で触る）。
+   */
+  settingsButton: {
+    borderWidth: 2,
+    borderColor: "#888899",
+    paddingVertical: 14,
+    paddingHorizontal: 32,
+    borderRadius: 8,
+  },
+  settingsButtonText: { color: "#CCCCDD", fontSize: 18, fontWeight: "bold" },
   compass: { alignItems: "center", marginTop: 12, gap: 2 },
   // 矢印そのものを回して進行方向を指す。
   compassNeedle: { fontSize: 34, color: "#FF6B35", lineHeight: 38 },
@@ -1482,14 +1280,15 @@ const styles = StyleSheet.create({
   sessionNote: { fontSize: 13, color: "#7FD1AE" },
   resetButton: {
     // Outlined rather than filled, so it does not compete with 「質問する」.
+    // ⚠️ Sized for gloved taps at a roadside stop, like the settings button.
     borderWidth: 2,
     borderColor: "#FF6B35",
-    paddingVertical: 12,
-    paddingHorizontal: 28,
+    paddingVertical: 16,
+    paddingHorizontal: 32,
     borderRadius: 8,
   },
   resetButtonDisabled: { borderColor: "#8A5A44" },
-  resetButtonText: { color: "#FF6B35", fontSize: 16, fontWeight: "bold" },
+  resetButtonText: { color: "#FF6B35", fontSize: 18, fontWeight: "bold" },
   button: {
     backgroundColor: "#FF6B35",
     paddingVertical: 14,

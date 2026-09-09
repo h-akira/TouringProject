@@ -4,46 +4,40 @@
  * 走行中には使わない画面なので、作り込みは最小限にとどめる
  * （CLAUDE.md「モバイルは必要最低限」）。停車中に触る想定。
  *
- * 扱うのは2つ:
+ * 扱うのは3つ:
  *   - **APIキー**（一度入れたら変えない）
- *   - **無音検知の閾値**（⚠️ **走行環境ごとに詰める必要がある**。
- *     風切り音・エンジン音で妥当な値が変わるため、端末で直せることが要件。
- *     pre-research/handsfree/FINDINGS.md §11）
+ *   - **録音の設定**（上限の秒数・録音の用途）
+ *   - **応答後に戻るアプリ**（⚠️ **戻る/戻らない**と**どのアプリか**は別物。
+ *     一時的に切っただけで選択が消えると、戻すときに選び直しになる）
+ *
+ * 📌 **無音検知（VAD）の調整は廃止した。** 走行中はエンジン音で音量が飽和して
+ * 成立しないため（[adr/008](../../../adr/008_end_of_speech_detection.md)）。
+ * 音量計・dB表示・閾値の入力欄も一緒に消している。
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Text, View, Pressable, StyleSheet, TextInput, ScrollView } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router } from "expo-router";
-import {
-  useAudioRecorder,
-  requestRecordingPermissionsAsync,
-  setAudioModeAsync,
-  type RecordingSource,
-} from "expo-audio";
+import { type RecordingSource } from "expo-audio";
 import { loadApiKey, saveApiKey, clearApiKey } from "@/api/apiKey";
-import {
-  recordingOptions,
-  METERING_INTERVAL_MS,
-  AUDIO_MODE_RECORDING,
-  AUDIO_MODE_PLAYBACK,
-  isSilent,
-} from "@/api/voice";
 import {
   loadReturnApp,
   saveReturnApp,
+  saveReturnAppEnabled,
+  orderApps,
   type LaunchableApp,
 } from "@/api/returnApp";
 import AppForeground from "@/native/app-foreground";
 import {
   AUDIO_SOURCE_CHOICES,
-  DEFAULT_VAD_SETTINGS,
-  VAD_LIMITS,
-  loadVadSettings,
-  saveVadSettings,
-  clearVadSettings,
-  normalizeVadSettings,
-  type VadSettings,
-} from "@/api/vadSettings";
+  DEFAULT_RECORDING_SETTINGS,
+  RECORDING_LIMITS,
+  loadRecordingSettings,
+  saveRecordingSettings,
+  clearRecordingSettings,
+  normalizeRecordingSettings,
+  type RecordingSettings,
+} from "@/api/recordingSettings";
 
 /** 数秒後に自動で消える通知を扱う。 */
 const MESSAGE_TIMEOUT_MS = 3_000;
@@ -91,32 +85,23 @@ export default function Settings() {
   const [message, setMessage] = useTransientMessage();
   const [loading, setLoading] = useState(true);
 
-  // 無音検知の閾値。入力途中は数値にならないので、文字列のまま持つ。
-  // ⚠️ **数値でstateを持つと「-」や「1.」の途中入力が消えて打てなくなる。**
-  const [thresholdDb, setThresholdDb] = useState("");
-  const [durationSec, setDurationSec] = useState("");
-  const [graceSec, setGraceSec] = useState("");
+  // 録音の上限。入力途中は数値にならないので、文字列のまま持つ。
+  // ⚠️ **数値でstateを持つと「1.」の途中入力が消えて打てなくなる。**
   const [maxRecordingSec, setMaxRecordingSec] = useState("");
-  const [vadMessage, setVadMessage] = useTransientMessage();
-  // 保存済みの値。音量表示の「無音/音あり」判定に使う。
-  const [vad, setVad] = useState<VadSettings>(DEFAULT_VAD_SETTINGS);
+  const [recMessage, setRecMessage] = useTransientMessage();
+  const [rec, setRec] = useState<RecordingSettings>(DEFAULT_RECORDING_SETTINGS);
 
-  // 音量の実測表示。⚠️ **これが無いと閾値を勘で決めることになる。**
-  // 停車中にエンジンをかけたまま値を見れば、走る前に当たりをつけられる。
-  // ⚠️ **`audioSource` を切り替えたら、その場で測り直せること**が要件
-  // （実機で比べるための画面なので、保存して開き直す必要があると比較にならない）。
-  // `useAudioRecorder` は options が変われば録音オブジェクトを作り直す。
-  const meterRecorder = useAudioRecorder(recordingOptions(vad));
-  const [monitoring, setMonitoring] = useState(false);
-  const [meterDb, setMeterDb] = useState<number | null>(null);
-
-  // 応答後に戻る先のアプリ（US-2.04）。null は「戻らない」。
+  // 応答後に戻るアプリ（US-2.04）。
+  // ⚠️ **「戻るか」と「どのアプリか」を別々に持つ。** ひとつにまとめると、
+  // **一時的に戻らないようにしただけで選択が消え**、戻したいときに
+  // 大量の一覧から選び直すことになる。
   const [apps, setApps] = useState<LaunchableApp[]>([]);
+  const [returnEnabled, setReturnEnabled] = useState(false);
   const [returnApp, setReturnApp] = useState<string | null>(null);
+  const [recentApps, setRecentApps] = useState<string[]>([]);
+  // アプリの絞り込み。⚠️ **インストール済みが多すぎて探せない**ため。
+  const [appQuery, setAppQuery] = useState("");
   const [returnAppMessage, setReturnAppMessage] = useTransientMessage();
-  const monitorTimer = useRef<ReturnType<typeof setInterval> | null>(null);
-  // 停止処理を effect の後片付けからも呼ぶので、最新の実体を ref で持つ。
-  const stopMonitorRef = useRef<() => void>(() => {});
 
   const insets = useSafeAreaInsets();
 
@@ -129,14 +114,14 @@ export default function Settings() {
   useEffect(() => {
     (async () => {
       setStored((await loadApiKey()) !== null);
-      const settings = await loadVadSettings();
-      setVad(settings);
-      setThresholdDb(String(settings.thresholdDb));
-      // ⚠️ 入力はミリ秒ではなく秒で受ける（走行中に読む値なので桁を減らす）。
-      setDurationSec(String(settings.durationMs / 1000));
-      setGraceSec(String(settings.graceMs / 1000));
+      const settings = await loadRecordingSettings();
+      setRec(settings);
+      // ⚠️ 入力はミリ秒ではなく秒で受ける（読む値なので桁を減らす）。
       setMaxRecordingSec(String(settings.maxRecordingMs / 1000));
-      setReturnApp(await loadReturnApp());
+      const ret = await loadReturnApp();
+      setReturnEnabled(ret.enabled);
+      setReturnApp(ret.packageName);
+      setRecentApps(ret.recent);
       setLoading(false);
     })();
     // 戻り先に選べるアプリの一覧。⚠️ **失敗しても設定画面全体は使えるようにする**
@@ -151,16 +136,39 @@ export default function Settings() {
   }, []);
 
   /**
+   * 「戻る/戻らない」を切り替える。
+   *
+   * ⚠️ **選んだアプリは消さない。** 一時的に切りたいだけのことがあり、
+   * 消すと**戻すときに大量の一覧から選び直し**になる。
+   */
+  async function onToggleReturnEnabled(enabled: boolean) {
+    setReturnEnabled(enabled);
+    try {
+      await saveReturnAppEnabled(enabled);
+      setReturnAppMessage(
+        enabled
+          ? returnApp === null
+            ? "戻ります（⚠️ アプリを選んでください）"
+            : "戻るようにしました"
+          : "戻らないようにしました（選んだアプリは残ります）",
+      );
+    } catch {
+      setReturnAppMessage("保存できませんでした");
+    }
+  }
+
+  /**
    * 戻り先のアプリを選ぶ。⚠️ **選んだ時点で保存する**（保存ボタンを作らない）。
    * 走行前に触る設定なので、押し忘れで効かない方が困る。
+   *
+   * 📌 **選んだら「戻る」も一緒に立てる**（選ぶ＝戻りたい、なので）。
    */
-  async function onSelectReturnApp(packageName: string | null) {
+  async function onSelectReturnApp(packageName: string) {
     setReturnApp(packageName);
+    setReturnEnabled(true);
     try {
-      await saveReturnApp(packageName);
-      setReturnAppMessage(
-        packageName === null ? "戻らないようにしました" : "保存しました",
-      );
+      setRecentApps(await saveReturnApp(packageName));
+      setReturnAppMessage("保存しました");
     } catch {
       setReturnAppMessage("保存できませんでした");
     }
@@ -195,152 +203,50 @@ export default function Settings() {
   }
 
   /**
-   * 音量の監視を止める。
-   *
-   * ⚠️ **マイクと音声モードを必ず戻す。** 掴んだままにすると、
-   * 戻った先の録音が始められず、読み上げも鳴らなくなる（index.tsx と同じ理由）。
-   */
-  function stopMonitor() {
-    if (monitorTimer.current) {
-      clearInterval(monitorTimer.current);
-      monitorTimer.current = null;
-    }
-    setMonitoring(false);
-    setMeterDb(null);
-    void (async () => {
-      try {
-        await meterRecorder.stop();
-        await setAudioModeAsync(AUDIO_MODE_PLAYBACK);
-      } catch {
-        // 既に止まっている場合は失敗しうる。捨てててよい。
-      }
-    })();
-  }
-
-  /**
-   * 音量の監視を始める。
-   *
-   * ⚠️ **録音はするが保存も送信もしない。** 閾値を決めるために値を見るだけで、
-   * 止めた時点で録れたファイルは捨てる。
-   */
-  async function startMonitor() {
-    if (monitoring) return;
-    try {
-      const { granted } = await requestRecordingPermissionsAsync();
-      if (!granted) {
-        setVadMessage("マイクの許可が得られませんでした");
-        return;
-      }
-      await setAudioModeAsync(AUDIO_MODE_RECORDING);
-      await meterRecorder.prepareToRecordAsync();
-      meterRecorder.record();
-      setMonitoring(true);
-      setVadMessage(null);
-      monitorTimer.current = setInterval(() => {
-        // ⚠️ maxAmplitude は読むとリセットされるので、読むのはここだけ
-        // （src/api/voice.ts）。
-        setMeterDb(meterRecorder.getStatus().metering ?? null);
-      }, METERING_INTERVAL_MS);
-    } catch (e) {
-      stopMonitor();
-      setVadMessage("音量の測定を開始できませんでした: " + String(e));
-    }
-  }
-
-  // ⚠️ **レンダー中に ref を書かない**（Reactの禁じ手。捨てられるレンダーでも
-  // 書き換わる）。最新の停止処理は副作用の中で差し替える。
-  useEffect(() => {
-    stopMonitorRef.current = stopMonitor;
-  });
-
-  // 画面を離れるときに必ず止める（マイクを掴んだままにしない）。
-  useEffect(() => {
-    return () => stopMonitorRef.current();
-  }, []);
-
-  /**
    * 録音の用途（`audioSource`）を選ぶ。
    *
    * ⚠️ **選んだ時点で保存する**（「保存」ボタンを待たない）。
-   * **測り比べるための設定**なので、選ぶ→測る→選ぶ、を続けて行えないと使えない。
-   * 他の項目（数値の入力欄）とは性質が違うため、あえて扱いを分ける。
-   *
-   * ⚠️ **測定中に切り替えたら測り直す。** 録音オブジェクトが作り直されるので、
-   * 掴んだままのマイクを一度離さないと新しい値では測れない。
+   * 入力欄と違って選択肢なので、押した結果がそのまま設定になる方が分かりやすい。
    */
   async function onSelectAudioSource(value: RecordingSource) {
-    const wasMonitoring = monitoring;
-    if (wasMonitoring) stopMonitor();
     try {
-      const saved = await saveVadSettings({ ...vad, audioSource: value });
-      setVad(saved);
-      setVadMessage(`録音の用途を ${value} にしました`);
+      const saved = await saveRecordingSettings({ ...rec, audioSource: value });
+      setRec(saved);
+      setRecMessage(`録音の用途を ${value} にしました`);
     } catch (e) {
-      setVadMessage("保存に失敗しました: " + String(e));
-      return;
-    }
-    // ⚠️ **すぐには測り直さない。** 新しい options で録音オブジェクトが
-    // 作られるのは次のレンダーなので、この場で始めると古い方を掴む。
-    // 利用者にもう一度「測る」を押してもらう（下の hint で促す）。
-  }
-
-  /**
-   * 無音検知を使うかを切り替える。
-   *
-   * ⚠️ **選んだ時点で保存する**（`onSelectAudioSource` と同じ理由）。
-   * 「保存」ボタン待ちにすると、切り替えて測る、が続けて行えない。
-   */
-  async function onToggleSilenceDetection(value: boolean) {
-    try {
-      const saved = await saveVadSettings({ ...vad, useSilenceDetection: value });
-      setVad(saved);
-      setVadMessage(
-        value
-          ? "無音検知を使います（⚠️ 走行中は成立しません）"
-          : "無音検知を使いません（ボタン再押し／上限で送ります）",
-      );
-    } catch (e) {
-      setVadMessage("保存に失敗しました: " + String(e));
+      setRecMessage("保存に失敗しました: " + String(e));
     }
   }
 
-  async function onSaveVad() {
+  async function onSaveRecording() {
     // 秒で受けてミリ秒に直す。数値でない入力は保存済みの値を据え置く。
-    const parsed = normalizeVadSettings({
-      thresholdDb: Number(thresholdDb),
-      durationMs: Number(durationSec) * 1000,
-      graceMs: Number(graceSec) * 1000,
+    const parsed = normalizeRecordingSettings({
       maxRecordingMs: Number(maxRecordingSec) * 1000,
       // ⚠️ **入力欄には無いので、いまの値を持ち回る**（落とすと既定に戻る）。
-      audioSource: vad.audioSource,
-      useSilenceDetection: vad.useSilenceDetection,
+      audioSource: rec.audioSource,
     });
     try {
-      const saved = await saveVadSettings(parsed);
-      setVad(saved);
+      const saved = await saveRecordingSettings(parsed);
+      setRec(saved);
       // ⚠️ **範囲外の入力は寄せて保存されるので、入力欄も直った値に揃える**
       // （画面と実際の設定がズレたままになるのを防ぐ）。
-      setThresholdDb(String(saved.thresholdDb));
-      setDurationSec(String(saved.durationMs / 1000));
-      setGraceSec(String(saved.graceMs / 1000));
       setMaxRecordingSec(String(saved.maxRecordingMs / 1000));
-      setVadMessage("保存しました");
+      setRecMessage("保存しました");
     } catch (e) {
-      setVadMessage("保存に失敗しました: " + String(e));
+      setRecMessage("保存に失敗しました: " + String(e));
     }
   }
 
-  async function onResetVad() {
+  async function onResetRecording() {
     try {
-      await clearVadSettings();
-      setVad(DEFAULT_VAD_SETTINGS);
-      setThresholdDb(String(DEFAULT_VAD_SETTINGS.thresholdDb));
-      setDurationSec(String(DEFAULT_VAD_SETTINGS.durationMs / 1000));
-      setGraceSec(String(DEFAULT_VAD_SETTINGS.graceMs / 1000));
-      setMaxRecordingSec(String(DEFAULT_VAD_SETTINGS.maxRecordingMs / 1000));
-      setVadMessage("既定値に戻しました");
+      await clearRecordingSettings();
+      setRec(DEFAULT_RECORDING_SETTINGS);
+      setMaxRecordingSec(
+        String(DEFAULT_RECORDING_SETTINGS.maxRecordingMs / 1000),
+      );
+      setRecMessage("既定値に戻しました");
     } catch (e) {
-      setVadMessage("戻せませんでした: " + String(e));
+      setRecMessage("戻せませんでした: " + String(e));
     }
   }
 
@@ -396,147 +302,18 @@ export default function Settings() {
           「話し終えたら自動で送る」が成立しないとハンズフリーにならない。
           妥当な値は風切り音・エンジン音で変わるため、ここで詰められるようにする。 */}
       <View style={styles.divider} />
-      <Text style={styles.title}>音声の自動送信</Text>
+      <Text style={styles.title}>録音</Text>
       <Text style={styles.note}>
-        話し終えて静かになったら、自動で録音を止めて送ります。
-        うまく止まらない・途中で切れる場合はここで調整してください。
+        インカムのボタンをもう一度押すと、その場で送信します。
+        押さなかったときは下の秒数で自動的に送られます。
       </Text>
-
-      {/* ⚠️ **無音検知を使うか。** 走行中は成立しないので既定は「使わない」
-          （pre-research/handsfree/FINDINGS.md §14〜§15）。
-          ⚠️ **切ると騒音ガードも一緒に止まる**（走行中は必ず捨てるため）。 */}
-      <Text style={styles.fieldLabel}>無音検知（音量で録音を終える）</Text>
-      <Text style={styles.hint}>
-        ⚠️ 走行中は成立しません（エンジン音で音量が 0 dB に張り付くため）。
-        切ると、インカムのボタンをもう一度押すか、下の「録音の上限」に達したときに
-        送られます。停車中に試すときだけ入れてください。
-      </Text>
-      <Pressable
-        style={[styles.appRow, vad.useSilenceDetection && styles.appRowSelected]}
-        onPress={() => void onToggleSilenceDetection(!vad.useSilenceDetection)}
-      >
-        <Text style={styles.appRowText}>
-          {vad.useSilenceDetection ? "◉" : "○"}　無音検知を使う
-        </Text>
-        <Text style={styles.hint}>
-          {vad.useSilenceDetection
-            ? "⚠️ 走行中はここが原因で質問が捨てられます"
-            : "走行向け。ボタン再押し／上限で送ります"}
-        </Text>
-      </Pressable>
-
-      {/* ⚠️ **録音の用途（audioSource）。**
-          （pre-research/handsfree/FINDINGS.md §15）。
-          📌 **飽和は避けられないと確定した**ので、いまは**録音の品質**で選ぶ。 */}
-      <Text style={styles.fieldLabel}>録音の用途</Text>
-      <Text style={styles.hint}>
-        端末側の音の加工が変わります。📌 実測では voice_communication が最も
-        ノイズを除けました（既定）。⚠️ ただし**どれを選んでもエンジン始動中の
-        飽和は避けられません**（実機で4種を測定済み）。
-      </Text>
-      {AUDIO_SOURCE_CHOICES.map((choice) => (
-        <Pressable
-          key={choice.value}
-          style={[
-            styles.appRow,
-            vad.audioSource === choice.value && styles.appRowSelected,
-          ]}
-          onPress={() => void onSelectAudioSource(choice.value)}
-        >
-          <Text style={styles.appRowText}>
-            {vad.audioSource === choice.value ? "◉" : "○"}　{choice.label}
-          </Text>
-          <Text style={styles.hint}>{choice.hint}</Text>
-        </Pressable>
-      ))}
-
-      {/* 実測値を見ながら決めるための表示。⚠️ **勘で決めさせない。** */}
-      <View style={styles.meterCard}>
-        <Text style={styles.meterValue}>
-          {!monitoring
-            ? "— 停止中 —"
-            : meterDb === null
-              ? "測定できません"
-              : `${meterDb.toFixed(1)} dB`}
-        </Text>
-        {monitoring && meterDb !== null && (
-          <Text
-            style={isSilent(meterDb, vad) ? styles.meterSilent : styles.meterVoice}
-          >
-            {isSilent(meterDb, vad)
-              ? "無音と判定（この状態が続けば送信）"
-              : "音ありと判定（録音を続ける）"}
-          </Text>
-        )}
-        <Pressable
-          style={monitoring ? styles.monitorButtonOn : styles.monitorButton}
-          onPress={monitoring ? stopMonitor : startMonitor}
-        >
-          <Text style={styles.monitorButtonText}>
-            {monitoring ? "■ 測定を止める" : "🎤 いまの音量を測る"}
-          </Text>
-        </Pressable>
-        <Text style={styles.hint}>
-          ⚠️ エンジンをかけた状態で測ると、走行中に近い値が分かります。
-          黙っているときの値より少し高めを閾値にしてください。
-        </Text>
-      </View>
 
       <Text style={styles.fieldLabel}>
-        無音とみなす音量（dB・{VAD_LIMITS.thresholdDb.min}〜
-        {VAD_LIMITS.thresholdDb.max}）
+        録音の上限（秒・{RECORDING_LIMITS.maxRecordingMs.min / 1000}〜
+        {RECORDING_LIMITS.maxRecordingMs.max / 1000}）
       </Text>
       <Text style={styles.hint}>
-        これを下回ると無音。⚠️ 低くしすぎると止まらず、高すぎると話の途中で切れます。
-      </Text>
-      <TextInput
-        style={styles.input}
-        value={thresholdDb}
-        onChangeText={setThresholdDb}
-        // ⚠️ 負の数を打つので numeric ではなく numbers-and-punctuation。
-        keyboardType="numbers-and-punctuation"
-        placeholder={String(DEFAULT_VAD_SETTINGS.thresholdDb)}
-        placeholderTextColor="#888899"
-      />
-
-      <Text style={styles.fieldLabel}>
-        送信するまでの無音の長さ（秒・{VAD_LIMITS.durationMs.min / 1000}〜
-        {VAD_LIMITS.durationMs.max / 1000}）
-      </Text>
-      <Text style={styles.hint}>
-        短いと言葉の「間」で切れ、長いと待たされます。
-      </Text>
-      <TextInput
-        style={styles.input}
-        value={durationSec}
-        onChangeText={setDurationSec}
-        keyboardType="numbers-and-punctuation"
-        placeholder={String(DEFAULT_VAD_SETTINGS.durationMs / 1000)}
-        placeholderTextColor="#888899"
-      />
-
-      <Text style={styles.fieldLabel}>
-        話し始めるまでの猶予（秒・{VAD_LIMITS.graceMs.min / 1000}〜
-        {VAD_LIMITS.graceMs.max / 1000}）
-      </Text>
-      <Text style={styles.hint}>
-        録音開始から この間は無音でも送りません。⚠️ 短いと話す前に送信されます。
-      </Text>
-      <TextInput
-        style={styles.input}
-        value={graceSec}
-        onChangeText={setGraceSec}
-        keyboardType="numbers-and-punctuation"
-        placeholder={String(DEFAULT_VAD_SETTINGS.graceMs / 1000)}
-        placeholderTextColor="#888899"
-      />
-
-      <Text style={styles.fieldLabel}>
-        録音の上限（秒・{VAD_LIMITS.maxRecordingMs.min / 1000}〜
-        {VAD_LIMITS.maxRecordingMs.max / 1000}）
-      </Text>
-      <Text style={styles.hint}>
-        ⚠️ 一度も話さなかったときは、ここでしか止まりません。
+        ⚠️ ボタンを押さないときは、ここまで待ってから送られます。
         長い質問をしたいときは伸ばしてください（長すぎると送信に失敗します）。
       </Text>
       <TextInput
@@ -544,18 +321,42 @@ export default function Settings() {
         value={maxRecordingSec}
         onChangeText={setMaxRecordingSec}
         keyboardType="numbers-and-punctuation"
-        placeholder={String(DEFAULT_VAD_SETTINGS.maxRecordingMs / 1000)}
+        placeholder={String(DEFAULT_RECORDING_SETTINGS.maxRecordingMs / 1000)}
         placeholderTextColor="#888899"
       />
 
-      <Pressable style={styles.button} onPress={onSaveVad}>
+      <Pressable style={styles.button} onPress={onSaveRecording}>
         <Text style={styles.buttonText}>保存</Text>
       </Pressable>
-      <Pressable style={styles.clearButton} onPress={onResetVad}>
+
+      {/* ⚠️ **録音の用途（audioSource）。** 端末側のノイズ除去が変わる。
+          📌 実測は pre-research/handsfree/FINDINGS.md §15。 */}
+      <Text style={styles.fieldLabel}>録音の用途</Text>
+      <Text style={styles.hint}>
+        端末側の音の加工（ノイズ除去）が変わります。
+        📌 実測では voice_communication が最もノイズを除けました。
+      </Text>
+      {AUDIO_SOURCE_CHOICES.map((choice) => (
+        <Pressable
+          key={choice.value}
+          style={[
+            styles.appRow,
+            rec.audioSource === choice.value && styles.appRowSelected,
+          ]}
+          onPress={() => void onSelectAudioSource(choice.value)}
+        >
+          <Text style={styles.appRowText}>
+            {rec.audioSource === choice.value ? "◉" : "○"}　{choice.label}
+          </Text>
+          <Text style={styles.hint}>{choice.hint}</Text>
+        </Pressable>
+      ))}
+
+      <Pressable style={styles.clearButton} onPress={onResetRecording}>
         <Text style={styles.clearButtonText}>既定値に戻す</Text>
       </Pressable>
 
-      {vadMessage && <Text style={styles.message}>{vadMessage}</Text>}
+      {recMessage && <Text style={styles.message}>{recMessage}</Text>}
 
       <View style={styles.divider} />
 
@@ -568,35 +369,104 @@ export default function Settings() {
         ⚠️ 案内中のルートは壊れません（開き直すのではなく、元の画面に戻ります）。
       </Text>
 
-      <Pressable
-        style={[
-          styles.appRow,
-          returnApp === null && styles.appRowSelected,
-        ]}
-        onPress={() => void onSelectReturnApp(null)}
-      >
-        <Text style={styles.appRowText}>
-          {returnApp === null ? "◉" : "○"}　戻らない
-        </Text>
-      </Pressable>
-
-      {apps.length === 0 ? (
-        <Text style={styles.note}>アプリの一覧を取得できませんでした。</Text>
-      ) : (
-        apps.map((app) => (
-          <Pressable
-            key={app.packageName}
-            style={[
-              styles.appRow,
-              returnApp === app.packageName && styles.appRowSelected,
-            ]}
-            onPress={() => void onSelectReturnApp(app.packageName)}
+      {/* ⚠️ **まず「戻る/戻らない」の二択。** アプリの選択とは分ける。
+          一時的に切りたいだけのときに、選んだアプリまで消さないため。 */}
+      <View style={styles.toggleRow}>
+        <Pressable
+          style={[styles.toggle, !returnEnabled && styles.toggleSelected]}
+          onPress={() => void onToggleReturnEnabled(false)}
+        >
+          <Text
+            style={!returnEnabled ? styles.toggleTextOn : styles.toggleText}
           >
-            <Text style={styles.appRowText} numberOfLines={1}>
-              {returnApp === app.packageName ? "◉" : "○"}　{app.label}
-            </Text>
-          </Pressable>
-        ))
+            戻らない
+          </Text>
+        </Pressable>
+        <Pressable
+          style={[styles.toggle, returnEnabled && styles.toggleSelected]}
+          onPress={() => void onToggleReturnEnabled(true)}
+        >
+          <Text style={returnEnabled ? styles.toggleTextOn : styles.toggleText}>
+            戻る
+          </Text>
+        </Pressable>
+      </View>
+
+      {/* ⚠️ **「戻る」を選んだときだけアプリを出す。**
+          「戻らない」のときに一覧を見せても選ばせる意味が無い。
+          📌 **選択自体は残っている**ので、戻せば元のアプリが選ばれたまま。 */}
+      {returnEnabled ? (
+        <>
+          <Text style={styles.selectedApp}>
+            {returnApp === null
+              ? "⚠️ アプリが選ばれていません"
+              : `いま選択中: ${
+                  apps.find((a) => a.packageName === returnApp)?.label ??
+                  returnApp
+                }`}
+          </Text>
+
+          {/* ⚠️ **一覧が多すぎて探せない**ので、名前で絞り込めるようにする。 */}
+          <TextInput
+            style={styles.input}
+            value={appQuery}
+            onChangeText={setAppQuery}
+            placeholder="アプリ名で絞り込む"
+            placeholderTextColor="#888899"
+            autoCorrect={false}
+            autoCapitalize="none"
+          />
+
+          {apps.length === 0 ? (
+            <Text style={styles.note}>アプリの一覧を取得できませんでした。</Text>
+          ) : (
+            (() => {
+              // 📌 **選んだことのあるものを上に出す**（お気に入りは作らない）。
+              const { recent, rest } = orderApps(apps, recentApps, appQuery);
+              if (recent.length === 0 && rest.length === 0) {
+                return (
+                  <Text style={styles.note}>該当するアプリがありません。</Text>
+                );
+              }
+              const row = (app: LaunchableApp) => (
+                <Pressable
+                  key={app.packageName}
+                  style={[
+                    styles.appRow,
+                    returnApp === app.packageName && styles.appRowSelected,
+                  ]}
+                  onPress={() => void onSelectReturnApp(app.packageName)}
+                >
+                  <Text style={styles.appRowText} numberOfLines={1}>
+                    {returnApp === app.packageName ? "◉" : "○"}　{app.label}
+                  </Text>
+                </Pressable>
+              );
+              return (
+                <>
+                  {recent.length > 0 && (
+                    <>
+                      <Text style={styles.groupLabel}>最近選んだもの</Text>
+                      {recent.map(row)}
+                      {rest.length > 0 && (
+                        <Text style={styles.groupLabel}>すべてのアプリ</Text>
+                      )}
+                    </>
+                  )}
+                  {rest.map(row)}
+                </>
+              );
+            })()
+          )}
+        </>
+      ) : (
+        returnApp !== null && (
+          <Text style={styles.hint}>
+            📌 「
+            {apps.find((a) => a.packageName === returnApp)?.label ?? returnApp}
+            」を選んだままにしてあります。「戻る」にすればそのまま使えます。
+          </Text>
+        )
       )}
 
       {returnAppMessage && (
@@ -667,33 +537,32 @@ const styles = StyleSheet.create({
   },
   fieldLabel: { fontSize: 14, color: "#FFFFFF", fontWeight: "bold" },
   hint: { fontSize: 12, color: "#888899", lineHeight: 17 },
-  meterCard: {
-    backgroundColor: "#2A2A3E",
-    padding: 16,
-    borderRadius: 8,
-    alignItems: "center",
-    gap: 10,
-  },
-  // 測っている値そのもの。閾値を決める根拠なので大きく出す。
-  meterValue: { fontSize: 28, fontWeight: "bold", color: "#FF6B35" },
-  meterSilent: { fontSize: 14, color: "#7FD1AE", fontWeight: "bold" },
-  meterVoice: { fontSize: 14, color: "#FF9E7A", fontWeight: "bold" },
-  monitorButton: {
-    alignSelf: "stretch",
+  /**
+   * 「戻る/戻らない」の二択。
+   *
+   * ⚠️ **一覧の中の1行にしない。** 一行に混ぜると、切り替えたつもりで
+   * アプリの選択を外してしまう（それが元の作りの問題だった）。
+   */
+  toggleRow: { flexDirection: "row", gap: 12 },
+  toggle: {
+    flex: 1,
     borderWidth: 2,
-    borderColor: "#FF6B35",
-    paddingVertical: 12,
+    borderColor: "#3A3A4E",
+    paddingVertical: 16,
     borderRadius: 8,
     alignItems: "center",
   },
-  monitorButtonOn: {
-    alignSelf: "stretch",
-    backgroundColor: "#C0392B",
-    paddingVertical: 12,
-    borderRadius: 8,
-    alignItems: "center",
+  toggleSelected: { borderColor: "#FF6B35", backgroundColor: "#3A2A2E" },
+  toggleText: { color: "#888899", fontSize: 17, fontWeight: "bold" },
+  toggleTextOn: { color: "#FF6B35", fontSize: 17, fontWeight: "bold" },
+  // いま何が選ばれているか。⚠️ 一覧が長いので、上で分かるようにする。
+  selectedApp: { fontSize: 14, color: "#7FD1AE", fontWeight: "bold" },
+  groupLabel: {
+    fontSize: 12,
+    color: "#888899",
+    fontWeight: "bold",
+    marginTop: 4,
   },
-  monitorButtonText: { color: "#FFFFFF", fontSize: 15, fontWeight: "bold" },
   backButton: { paddingVertical: 12, alignItems: "center" },
   backButtonText: { color: "#AAAAAA", fontSize: 16 },
 });

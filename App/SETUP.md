@@ -180,11 +180,11 @@ APKファイルを実機で直接開く方法だと「提供元不明のアプ�
 
 📌 **`-r` で上書きインストールできる。** `android/app/build.gradle` の release は
 **debugと同じキーストアを使う**ため署名が変わらず、
-**保存済みのAPIキー・VAD設定・戻り先アプリは消えない。**
+**保存済みのAPIキー・録音の設定・戻り先アプリは消えない。**
 
 ### ✅ release でも `console.log` は出る（確認済み）
 
-**走行中の閾値調整に要る `[vad]` / `[handsfree]` ログは release でも `adb logcat` に出る。**
+**実機で挙動を追うための `[recording]` / `[handsfree]` ログは release でも `adb logcat` に出る。**
 除去の経路が**どれも無い**ことを確認済み:
 
 | 経路 | 状態 |
@@ -198,11 +198,13 @@ APKファイルを実機で直接開く方法だと「提供元不明のアプ�
 
 ```sh
 unzip -p android/app/build/outputs/apk/release/app-release.apk assets/index.android.bundle \
-  | grep -ac "sustained silence"   # 1 以上なら出る
+  | grep -ac "max reached"   # 1 以上なら出る
 ```
 
 ⚠️ **`grep -a` が要る**（バンドルは**Hermesバイトコード**なのでバイナリ扱いになる）。
-⚠️ **`[vad]` で検索しない** — 角括弧は正規表現のため空振りする。
+⚠️ **`[recording]` で検索しない** — 角括弧は正規表現のため空振りする。
+⚠️ **日本語では検索しない** — Hermesは**UTF-16で格納する**ので `grep` に写らない
+（確かめ方は下記）。
 
 ### ビルド後に確かめること
 
