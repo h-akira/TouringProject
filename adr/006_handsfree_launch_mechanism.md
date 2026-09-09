@@ -115,6 +115,8 @@ Alexaが候補としてあっても常に無視されていた
   ⚠️ **2026-09-05、この「未検証」に答えが出た: 走行中は成立しない。**
   **エンジン音で `metering` が 0 dBFS に飽和し、発話しても値が動かない**ため、
   **閾値の調整では直らない**（[FINDINGS.md](../pre-research/handsfree/FINDINGS.md) §12）。
+  ⚠️ **録音の用途（`audioSource`）を変えても回避できなかった**（2026-09-09・4種を実測。
+  [FINDINGS.md](../pre-research/handsfree/FINDINGS.md) §13）。
   📌 **起動方式（本ADRの決定の骨格）は影響を受けない。**
   **終話判定の方式は別途決め直す**（決まれば新しいADRを書く）。
 - 📌 **「マップアプリが引っ込む」への対処は [adr/007](007_return_to_map_after_answer.md) で決めた**
