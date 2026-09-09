@@ -26,6 +26,7 @@ import {
   AUDIO_MODE_RECORDING,
   AUDIO_MODE_PLAYBACK,
   METERING_WARMUP_MS,
+  MIN_RECORDING_MS,
   SUSTAINED_SILENCE_MS,
   isSilent,
   shouldStopForSilence,
@@ -266,9 +267,12 @@ export default function Index() {
   // 停止が画面操作のままでは走行中に使えない（手が塞がっていて画面も見ない）。
   const silenceTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   // 連続した無音が始まった時刻。声が乗った時点で null に戻す（＝計り直し）。
-  // ⚠️ **録音開始時刻は ref に持たない**（猶予の判定はループ内のクロージャが
-  // 持つ `startedAt` で足りる。二重に持つと必ず片方がずれる）。
   const silentSince = useRef<number | null>(null);
+  // 録音を始めた時刻。
+  // ⚠️ **無音検知のループ（`startSilenceDetection`）の外でも要る。**
+  // ボタン再押しで終える方式（adr/008）では**ループを回さない**ので、
+  // クロージャの `startedAt` に頼れない。**短すぎる録音を弾く**ために使う。
+  const recordingStartedAt = useRef<number | null>(null);
   // この録音で一度でも声が乗ったか。⚠️ **これが無いと、話し始めが遅れただけで
   // 空の録音が送られる**（src/api/voice.ts の shouldStopForSilence 参照）。
   const hasSpoken = useRef(false);
@@ -287,6 +291,11 @@ export default function Index() {
   // 画面に出す音量（dBFS）。⚠️ **閾値を実走行で詰めるための表示**で、
   // 走行中に見るものではない（停車中に値の出方を確かめる用）。
   const [meterDb, setMeterDb] = useState<number | null>(null);
+  // 自動送信までの残り秒数。⚠️ **走行中に画面を見る唯一の場面がここ。**
+  // 「2回目を押さずに待つ」ときに**あと何秒かが分からないと待てない**
+  // （押すべきか待つべきかを判断できない）。null なら録音していない。
+  const [remainingSec, setRemainingSec] = useState<number | null>(null);
+  const countdownTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // 無音検知の閾値（設定画面で変えられる。src/api/vadSettings.ts）。
   // ⚠️ **ref で持つ。** 判定は setInterval の中で走るので、state だけだと
@@ -561,6 +570,35 @@ export default function Index() {
   }
 
   /**
+   * 自動送信までの残り秒数を数える（adr/008・方式D）。
+   *
+   * ⚠️ **無音検知とは独立に回す。** あちらは既定で切ってあるので、
+   * そこに相乗りさせると**走行中はカウントダウンも出なくなる。**
+   *
+   * 📌 **1秒ごとで足りる**（秒単位でしか表示しないため）。
+   */
+  function startCountdown(totalMs: number) {
+    stopCountdown();
+    const startedAt = Date.now();
+    // ⚠️ **最初の1秒を待たずに出す。** 待つと録音直後に空白ができ、
+    // 走行中は「動いていない」と見分けがつかない。
+    setRemainingSec(Math.ceil(totalMs / 1000));
+    countdownTimer.current = setInterval(() => {
+      const left = Math.ceil((totalMs - (Date.now() - startedAt)) / 1000);
+      // ⚠️ **負の値を出さない。** 送信処理が走るまでの数百msで -1 が見える。
+      setRemainingSec(left > 0 ? left : 0);
+    }, 1_000);
+  }
+
+  function stopCountdown() {
+    if (countdownTimer.current) {
+      clearInterval(countdownTimer.current);
+      countdownTimer.current = null;
+    }
+    setRemainingSec(null);
+  }
+
+  /**
    * 無音検知を止める。
    *
    * ⚠️ **録音が終わる経路すべてから呼ぶこと。** 止め忘れると、録音していない
@@ -690,6 +728,7 @@ export default function Index() {
       await recorder.prepareToRecordAsync();
       recorder.record();
       recordingRef.current = true;
+      recordingStartedAt.current = Date.now();
       setRecording(true);
       setAnswer(null);
       recordingTimer.current = setTimeout(() => {
@@ -703,18 +742,30 @@ export default function Index() {
             `minSeen=${minMeteringSeen.current} maxSeen=${maxMeteringSeen.current} ` +
             `threshold=${vadRef.current.thresholdDb}`,
         );
-        if (shouldDiscardAsNoise(everSilent.current, lastMetering.current)) {
+        // ⚠️ **無音検知を使わないなら騒音ガードも通さない。**
+        // ガードは「一度も静かにならなかった」を騒音の証拠にするが、
+        // **走行中はエンジン音で常に飽和していて必ず成立する**ので、
+        // 通すと**すべての録音を捨てる**（FINDINGS.md §14〜§15）。
+        if (
+          vadRef.current.useSilenceDetection &&
+          shouldDiscardAsNoise(everSilent.current, lastMetering.current)
+        ) {
           discardAsNoise();
           return;
         }
         // 押し忘れ、または長い質問。録れているぶんで送る。
         void stopRecordingAndSend();
       }, vadRef.current.maxRecordingMs);
+      // 自動送信までの残り秒数を出す（方式D）。⚠️ **上限タイマーと同じ値**を渡す。
+      startCountdown(vadRef.current.maxRecordingMs);
       // 話し終えたら自動で送るための監視を始める（US-2.04の終了側）。
-      startSilenceDetection();
+      // ⚠️ **走行中は使えない**ので既定では回さない。その場合の出口は
+      // インカムのボタン再押し（方式C）と上限（方式D）。
+      if (vadRef.current.useSilenceDetection) startSilenceDetection();
       return true;
     } catch (e) {
       recordingRef.current = false;
+      recordingStartedAt.current = null;
       setRecording(false);
       // ⚠️ **上限タイマーを必ず消す。** 残すと、この失敗した録音のタイマーが
       // **次の録音の最中に発火して早すぎる送信を起こす**（開始に失敗 → すぐ
@@ -725,6 +776,7 @@ export default function Index() {
       }
       // 開始に失敗したら監視も残さない（録音していないのに叩き続けるため）。
       stopSilenceDetection();
+      stopCountdown();
       setAnswer("録音を開始できませんでした: " + String(e));
       return false;
     }
@@ -741,8 +793,37 @@ export default function Index() {
     if (autoRecordHandledUrl.current === launchUrl) return;
     if (!parseUrl(launchUrl).queryParams?.autoRecord) return;
     autoRecordHandledUrl.current = launchUrl;
+    // ⚠️ **この行が届くこと自体が方式Cの検証になる**（FINDINGS.md §16）。
+    // マイクを掴んでいる最中に Bluetooth スタックが VOICE_COMMAND を
+    // 送るかは端末・インカム側の挙動で、コードからは判断できない。
+    console.log(
+      `[handsfree] VOICE_COMMAND received: recording=${recordingRef.current} ` +
+        `sending=${sending} url=${launchUrl}`,
+    );
     void (async () => {
-      // ⚠️ **応答待ちの最中でも押されうる。** その場合 startRecording は
+      // 方式C: **録音中にもう一度押されたら「話し終えた」とみなして送る**
+      // （US-2.04の終了側。⚠️ **音量ベースのVADは走行中に成立しない**ので、
+      // 音を一切見ないこの経路が必要。FINDINGS.md §14〜§15）。
+      // ⚠️ **startRecording より前に見る。** あちらは `recordingRef` で
+      // 弾くので、ここを通さないと「いま応答中です」と読み上げてしまう。
+      if (recordingRef.current) {
+        // ⚠️ **短すぎる録音は送らない。** インカムのボタンのチャタリングや、
+        // 起動の押下が二重に届いた場合に**空の録音を送ってしまう**
+        // （課金されるうえ、意味不明な回答が返る）。
+        // 📌 **押し直しは弾かれるだけ**なので、上限（方式D）で必ず送られる。
+        const elapsed = Date.now() - (recordingStartedAt.current ?? 0);
+        if (elapsed < MIN_RECORDING_MS) {
+          console.log(`[handsfree] second press too soon (${elapsed}ms) -> ignore`);
+          return;
+        }
+        console.log(`[handsfree] second press while recording (${elapsed}ms) -> send`);
+        // ⚠️ **ハンズフリーの印は倒さない。** この一往復は最初の押下から
+        // 続いているので、`launchedHandsFree` / `wasHandsFree` は
+        // 立ったままにして、回答後にマップへ戻す経路を保つ。
+        void stopRecordingAndSend();
+        return;
+      }
+      // ⚠️ **応答待ちの最中にも押されうる。** その場合 startRecording は
       // `sending` で弾かれるので、**先に前の質問を捨ててはいけない**
       // （捨てたうえに録音も始まらず、押しても完全に無反応になる）。
       const started = await startRecording();
@@ -783,8 +864,10 @@ export default function Index() {
     // ⚠️ **早期returnより前に止める。** 録音フラグが既に下りていても
     // 監視だけ残っていることがあり、残すと `getStatus()` を叩き続ける。
     stopSilenceDetection();
+    stopCountdown();
     if (!recordingRef.current) return;
     recordingRef.current = false;
+    recordingStartedAt.current = null;
     setRecording(false);
     // 後片付けなので、失敗しても伝える相手がいない（画面を離れている）。
     void (async () => {
@@ -871,11 +954,13 @@ export default function Index() {
     // **最初の1回だけが通る**（ここで ref を倒すため二重送信にならない）。
     if (!recordingRef.current) return;
     recordingRef.current = false;
+    recordingStartedAt.current = null;
     if (recordingTimer.current) {
       clearTimeout(recordingTimer.current);
       recordingTimer.current = null;
     }
     stopSilenceDetection();
+    stopCountdown();
     setRecording(false);
 
     let uri: string | null = null;
@@ -1224,24 +1309,35 @@ export default function Index() {
             disabled={sending}
           >
             <Text style={styles.voiceButtonText}>
-              {recording ? "■ 話し終えたら止まります" : "🎤 押して話す"}
+              {recording ? "■ 押すと送信します" : "🎤 押して話す"}
             </Text>
           </Pressable>
           {recording && (
             <>
+              {/* ⚠️ **走行中に見る唯一の表示。** 「2回目を押さずに待つ」ときに
+                  **あと何秒かが分からないと、押すべきか待つべきか判断できない。**
+                  📌 **他の何より大きく出す**（一瞬の視線で読めることが要件）。 */}
+              <Text style={styles.countdown}>
+                {remainingSec === null ? "—" : `あと ${remainingSec} 秒`}
+              </Text>
               <Text style={styles.recordingNote}>
-                録音中…（{(vad.durationMs / 1000).toFixed(1)}秒の無音で自動送信／
-                最長{vad.maxRecordingMs / 1000}秒）
+                {vad.useSilenceDetection
+                  ? `話し終えるか、ボタンをもう一度押すと送信（${(vad.durationMs / 1000).toFixed(1)}秒の無音でも送信）`
+                  : "ボタンをもう一度押すと送信。押さなくても0秒で自動送信"}
               </Text>
               {/* ⚠️ **閾値を実走行で詰めるための表示。** 走行中に見るものではなく、
                   停車中に「喋ったとき／黙ったとき」の値を確かめるために出す。
-                  値がズレていたら設定画面で直す（そちらにも測定機能がある）。 */}
-              <Text style={styles.note}>
-                {meterDb === null
-                  ? "音量: 測定できません"
-                  : `音量 ${meterDb.toFixed(1)} dB / 閾値 ${vad.thresholdDb} dB` +
-                    `（${isSilent(meterDb, vad) ? "無音" : "音あり"}）`}
-              </Text>
+                  値がズレていたら設定画面で直す（そちらにも測定機能がある）。
+                  ⚠️ **無音検知を切っているときは出さない。** 閾値が判定に
+                  使われないので、出すと**効いていない値を見て悩む**ことになる。 */}
+              {vad.useSilenceDetection && (
+                <Text style={styles.note}>
+                  {meterDb === null
+                    ? "音量: 測定できません"
+                    : `音量 ${meterDb.toFixed(1)} dB / 閾値 ${vad.thresholdDb} dB` +
+                      `（${isSilent(meterDb, vad) ? "無音" : "音あり"}）`}
+                </Text>
+              )}
             </>
           )}
         </View>
@@ -1356,7 +1452,20 @@ const styles = StyleSheet.create({
   voiceButtonRecording: { backgroundColor: "#C0392B" },
   voiceButtonDisabled: { backgroundColor: "#8A5A44" },
   voiceButtonText: { color: "#FFFFFF", fontSize: 22, fontWeight: "bold" },
-  recordingNote: { fontSize: 13, color: "#FF9E7A" },
+  /**
+   * 自動送信までの残り秒数（adr/008・方式D）。
+   *
+   * ⚠️ **走行中に一瞬の視線で読めることが要件**なので、
+   * **画面で最も大きい文字**にする（ボタンの文字が22px）。
+   */
+  countdown: {
+    fontSize: 56,
+    fontWeight: "bold",
+    color: "#FFFFFF",
+    // 等幅にして桁が変わっても位置が動かないようにする（読み取りが速い）。
+    fontVariant: ["tabular-nums"],
+  },
+  recordingNote: { fontSize: 13, color: "#FF9E7A", textAlign: "center" },
   askArea: { alignSelf: "stretch", alignItems: "center", gap: 12 },
   input: {
     alignSelf: "stretch",

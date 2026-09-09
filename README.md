@@ -109,6 +109,8 @@ flowchart LR
 
 | # | 決定 | 日付 |
 |---|---|---|
+| [008](adr/008_end_of_speech_detection.md) | 走行中の終話はインカムのボタン再押し＋録音の上限で判定する（音量ベースのVADは走行中に不成立） | 2026-09-09 |
+| [007](adr/007_return_to_map_after_answer.md) | 応答後は設定で選んだアプリをLAUNCHERインテントで開いて戻る | 2026-08-21 |
 | [006](adr/006_handsfree_launch_mechanism.md) | ハンズフリー起動は `VOICE_COMMAND` の intent-filter で受ける（`VoiceInteractionService` 方式から改訂） | 2026-08-17 |
 | [005](adr/005_cross_stack_handoff.md) | スタック間の受け渡しをSSMにし、パイプラインは暫定で1本にする | 2026-08-15 |
 | [004](adr/004_api_key_auth.md) | APIの保護をIP制限からAPIキーに替える | 2026-08-15 |

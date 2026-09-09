@@ -114,11 +114,12 @@ Alexaが候補としてあっても常に無視されていた
   （[FINDINGS.md](../pre-research/handsfree/FINDINGS.md) §10〜11）。
   ⚠️ **2026-09-05、この「未検証」に答えが出た: 走行中は成立しない。**
   **エンジン音で `metering` が 0 dBFS に飽和し、発話しても値が動かない**ため、
-  **閾値の調整では直らない**（[FINDINGS.md](../pre-research/handsfree/FINDINGS.md) §12）。
+  **閾値の調整では直らない**（[FINDINGS.md](../pre-research/handsfree/FINDINGS.md) §14）。
   ⚠️ **録音の用途（`audioSource`）を変えても回避できなかった**（2026-09-09・4種を実測。
-  [FINDINGS.md](../pre-research/handsfree/FINDINGS.md) §13）。
+  [FINDINGS.md](../pre-research/handsfree/FINDINGS.md) §15）。
   📌 **起動方式（本ADRの決定の骨格）は影響を受けない。**
-  **終話判定の方式は別途決め直す**（決まれば新しいADRを書く）。
+  📌 **終話判定は [adr/008](008_end_of_speech_detection.md) で決め直した**（2026-09-09）。
+  **インカムのボタンをもう一度押して終える＋録音の上限**の併用。
 - 📌 **「マップアプリが引っ込む」への対処は [adr/007](007_return_to_map_after_answer.md) で決めた**
   （2026-08-21）。**回答が届いた時点で、設定で選んだアプリを前面に戻す。**
   ⚠️ **`moveTaskToBack` で自アプリを背面へ退ける案は実機で不成立**

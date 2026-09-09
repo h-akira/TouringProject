@@ -38,13 +38,26 @@ export type VadSettings = {
    *
    * ⚠️ **端末側の音の加工が変わる。** `metering` の元になる
    * `MediaRecorder.maxAmplitude` の見え方に効くため、**設定として切り替えられる**
-   * ようにしてある（FINDINGS.md §12）。
+   * ようにしてある（FINDINGS.md §15）。
    *
-   * ⚠️ **エンジン始動中は `metering` が 0 dBFS に飽和して無音検知が働かない。**
-   * AGC（自動ゲイン調整）が原因なら、**AGCが切られる `voice_recognition`**
-   * で解ける可能性がある。どれが効くかは**実機で試すしかない**。
+   * 📌 **`voice_communication` が4種で最もノイズ除去が効いた**（実機で測定）。
+   * ⚠️ **それでも走行中の飽和は避けられない**ので、**無音検知の救済にはならない**。
+   * 残す理由は**録音そのものの品質**（FINDINGS.md §15）。
    */
   audioSource: RecordingSource;
+
+  /**
+   * 無音検知（音量ベースのVAD）で録音を終えるか。
+   *
+   * ⚠️ **走行中は `false` にする。** エンジン音で `metering` が 0 dBFS に
+   * 飽和し、**一度も無音にならない**ため、有効なままだと
+   * ①無音検知が永久に発火せず ②騒音ガードが録音を捨てる
+   * （FINDINGS.md §14〜§15）。
+   *
+   * 📌 **`false` でも録音は終わる。** インカムのボタンをもう一度押すか
+   * （方式C）、`maxRecordingMs` に達するか（方式D）で送られる。
+   */
+  useSilenceDetection: boolean;
 };
 
 /**
@@ -109,14 +122,29 @@ export const DEFAULT_VAD_SETTINGS: VadSettings = {
   thresholdDb: envNumber(process.env.EXPO_PUBLIC_SILENCE_THRESHOLD_DB, -40),
   durationMs: envNumber(process.env.EXPO_PUBLIC_SILENCE_DURATION_MS, 3_000),
   graceMs: envNumber(process.env.EXPO_PUBLIC_SILENCE_GRACE_MS, 5_000),
-  maxRecordingMs: envNumber(process.env.EXPO_PUBLIC_MAX_RECORDING_MS, 30_000),
   /**
-   * ⚠️ **既定は `mic`**（指定しなかったときの `expo-audio` の既定と同じ）。
-   * **飽和したのはこの値**なので、実機で他を試して当たりが出たら既定を変える。
+   * ⚠️ **20秒。** 方式D（上限で自動送信）は**押し忘れ時の出口**であると同時に、
+   * **押すのが面倒なときに「待つ」ための時間**でもある（adr/008）。
+   * ⚠️ **長いとその分ただ待たされる**ので、30秒から詰めた。
+   * 📌 **画面に残り秒数を大きく出している**ので、待つ判断はその場でできる。
+   */
+  maxRecordingMs: envNumber(process.env.EXPO_PUBLIC_MAX_RECORDING_MS, 20_000),
+  /**
+   * ⚠️ **既定は `voice_communication`。** 4種の実測でノイズ除去が最も効いた
+   * （FINDINGS.md §15）。飽和は避けられないが、**録音の品質では最良**。
    */
   audioSource: isAudioSource(process.env.EXPO_PUBLIC_AUDIO_SOURCE)
     ? process.env.EXPO_PUBLIC_AUDIO_SOURCE
-    : "mic",
+    : "voice_communication",
+  /**
+   * ⚠️ **既定は `false`（＝無音検知を使わない）。**
+   * **走行中が本番**で、そこでは音量ベースのVADが成立しないと実測で確定した
+   * （FINDINGS.md §14〜§15）。既定で有効にすると、**走行中は必ず
+   * 騒音ガードに捨てられる。**
+   * 📌 停車中に試したいときだけ設定画面で有効にする。
+   */
+  useSilenceDetection:
+    process.env.EXPO_PUBLIC_USE_SILENCE_DETECTION === "true",
 };
 
 /**
@@ -168,6 +196,12 @@ export function normalizeVadSettings(raw: unknown): VadSettings {
     audioSource: isAudioSource(source.audioSource)
       ? source.audioSource
       : DEFAULT_VAD_SETTINGS.audioSource,
+    // ⚠️ **真偽値そのものでなければ既定に倒す。** この設定を足す前に保存された
+    // 値にはキーが無く、`undefined` が入る（そこで `false` に倒れてほしい）。
+    useSilenceDetection:
+      typeof source.useSilenceDetection === "boolean"
+        ? source.useSilenceDetection
+        : DEFAULT_VAD_SETTINGS.useSilenceDetection,
   };
 }
 

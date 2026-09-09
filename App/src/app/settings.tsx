@@ -284,6 +284,26 @@ export default function Settings() {
     // 利用者にもう一度「測る」を押してもらう（下の hint で促す）。
   }
 
+  /**
+   * 無音検知を使うかを切り替える。
+   *
+   * ⚠️ **選んだ時点で保存する**（`onSelectAudioSource` と同じ理由）。
+   * 「保存」ボタン待ちにすると、切り替えて測る、が続けて行えない。
+   */
+  async function onToggleSilenceDetection(value: boolean) {
+    try {
+      const saved = await saveVadSettings({ ...vad, useSilenceDetection: value });
+      setVad(saved);
+      setVadMessage(
+        value
+          ? "無音検知を使います（⚠️ 走行中は成立しません）"
+          : "無音検知を使いません（ボタン再押し／上限で送ります）",
+      );
+    } catch (e) {
+      setVadMessage("保存に失敗しました: " + String(e));
+    }
+  }
+
   async function onSaveVad() {
     // 秒で受けてミリ秒に直す。数値でない入力は保存済みの値を据え置く。
     const parsed = normalizeVadSettings({
@@ -293,6 +313,7 @@ export default function Settings() {
       maxRecordingMs: Number(maxRecordingSec) * 1000,
       // ⚠️ **入力欄には無いので、いまの値を持ち回る**（落とすと既定に戻る）。
       audioSource: vad.audioSource,
+      useSilenceDetection: vad.useSilenceDetection,
     });
     try {
       const saved = await saveVadSettings(parsed);
@@ -381,15 +402,37 @@ export default function Settings() {
         うまく止まらない・途中で切れる場合はここで調整してください。
       </Text>
 
-      {/* ⚠️ **録音の用途（audioSource）。** エンジン始動中に metering が
-          0 dBFS に飽和して無音検知が働かない問題の切り分け用
-          （pre-research/handsfree/FINDINGS.md §12）。
-          **端末側の音の加工が変わる**ので、実機で測り比べる。 */}
+      {/* ⚠️ **無音検知を使うか。** 走行中は成立しないので既定は「使わない」
+          （pre-research/handsfree/FINDINGS.md §14〜§15）。
+          ⚠️ **切ると騒音ガードも一緒に止まる**（走行中は必ず捨てるため）。 */}
+      <Text style={styles.fieldLabel}>無音検知（音量で録音を終える）</Text>
+      <Text style={styles.hint}>
+        ⚠️ 走行中は成立しません（エンジン音で音量が 0 dB に張り付くため）。
+        切ると、インカムのボタンをもう一度押すか、下の「録音の上限」に達したときに
+        送られます。停車中に試すときだけ入れてください。
+      </Text>
+      <Pressable
+        style={[styles.appRow, vad.useSilenceDetection && styles.appRowSelected]}
+        onPress={() => void onToggleSilenceDetection(!vad.useSilenceDetection)}
+      >
+        <Text style={styles.appRowText}>
+          {vad.useSilenceDetection ? "◉" : "○"}　無音検知を使う
+        </Text>
+        <Text style={styles.hint}>
+          {vad.useSilenceDetection
+            ? "⚠️ 走行中はここが原因で質問が捨てられます"
+            : "走行向け。ボタン再押し／上限で送ります"}
+        </Text>
+      </Pressable>
+
+      {/* ⚠️ **録音の用途（audioSource）。**
+          （pre-research/handsfree/FINDINGS.md §15）。
+          📌 **飽和は避けられないと確定した**ので、いまは**録音の品質**で選ぶ。 */}
       <Text style={styles.fieldLabel}>録音の用途</Text>
       <Text style={styles.hint}>
-        ⚠️ エンジンをかけると音量が 0 dB に張り付き、話しても変わらなくなります。
-        これを切り替えると直る可能性があります。選ぶとすぐ保存されるので、
-        そのつど下の「いまの音量を測る」で測り比べてください。
+        端末側の音の加工が変わります。📌 実測では voice_communication が最も
+        ノイズを除けました（既定）。⚠️ ただし**どれを選んでもエンジン始動中の
+        飽和は避けられません**（実機で4種を測定済み）。
       </Text>
       {AUDIO_SOURCE_CHOICES.map((choice) => (
         <Pressable

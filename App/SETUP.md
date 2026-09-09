@@ -219,6 +219,26 @@ unzip -l "$APK" | grep index.android.bundle
 
 ⚠️ **最終確認はUSBを抜いて起動すること**（Metroを止めてから）。
 
+#### ⚠️ バンドルは Hermes バイトコードなので `grep` が効かない
+
+**「今回の変更がAPKに入ったか」を文字列で確かめたいとき**、
+⚠️ **`unzip -p … | grep` は空振りする**（`file` で見ると
+`Hermes JavaScript bytecode` で、**プレーンなJSではない**）。
+
+📌 **文字列そのものは残っている**が、**日本語は UTF-16LE で格納される**。
+`strings` はUTF-8しか拾わないので、**日本語だけ見つからない**という
+⚠️ **紛らわしい空振り方**をする（ASCIIのログ文字列は見つかる）。
+
+```sh
+unzip -p "$APK" assets/index.android.bundle > /tmp/bundle.js
+python3 -c '
+import sys
+data = open("/tmp/bundle.js","rb").read()
+for p in sys.argv[1:]:
+    print(p, "utf8:", data.count(p.encode()), "utf16:", data.count(p.encode("utf-16-le")))
+' "押して話す" "second press while recording"
+```
+
 📌 **`expo-dev-client` は `package.json` に入れたままでよい。**
 release APKには**含まれない**ことを確認済み（Metroでの開発には引き続き要る）。
 
@@ -228,7 +248,7 @@ release APKには**含まれない**ことを確認済み（Metroでの開発に
 |---|---|
 | **403** | ⚠️ ①APIキーが未設定/誤り（設定画面）②デプロイ漏れ。**切り分けは `/health`**（キー不要・200なら生きている） |
 | **429** | Usage Planの上限。⚠️ **クォータはポーリングも消費する**（1問≒11回） |
-| **「録音が長すぎます」** | 30秒の上限に達した。短く話す |
+| **「録音が長すぎます」** | サーバーが2MBで弾いた（`MAX_AUDIO_BYTES`）。⚠️ **録音の上限（既定20秒）とは別**で、上限を大きく延ばしたときに出る |
 | **回答は出るが読み上げない** | 音声合成の失敗。⚠️ **異常ではない**（回答は画面に出ている） |
 | **聞き取りが違う** | 地名の同音異義（「柳井」→「屋内」等）。⚠️ **走行中の風切り音にも弱い** |
 | **「API URL が未設定」** | `.env` が無い/`EXPO_PUBLIC_API_BASE_URL` が空。⚠️ **`.env` を変えたら `expo start` を再起動** |
