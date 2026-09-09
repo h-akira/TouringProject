@@ -24,6 +24,7 @@ import {
   loadReturnApp,
   saveReturnApp,
   saveReturnAppEnabled,
+  removeRecentApp,
   orderApps,
   type LaunchableApp,
 } from "@/api/returnApp";
@@ -218,6 +219,22 @@ export default function Settings() {
     }
   }
 
+  /**
+   * 「最近選んだもの」から1件外す。
+   *
+   * 📌 **戻り先の選択には触らない。** ここは**一覧の並びの話**なので、
+   * いま選んでいるアプリを消しても設定は変わらない
+   * （消した直後も「いま選択中」の表示は残る）。
+   */
+  async function onRemoveRecent(packageName: string) {
+    try {
+      setRecentApps(await removeRecentApp(packageName));
+      setReturnAppMessage("最近選んだものから外しました");
+    } catch {
+      setReturnAppMessage("外せませんでした");
+    }
+  }
+
   async function onSaveRecording() {
     // 秒で受けてミリ秒に直す。数値でない入力は保存済みの値を据え置く。
     const parsed = normalizeRecordingSettings({
@@ -406,16 +423,30 @@ export default function Settings() {
                 }`}
           </Text>
 
-          {/* ⚠️ **一覧が多すぎて探せない**ので、名前で絞り込めるようにする。 */}
-          <TextInput
-            style={styles.input}
-            value={appQuery}
-            onChangeText={setAppQuery}
-            placeholder="アプリ名で絞り込む"
-            placeholderTextColor="#888899"
-            autoCorrect={false}
-            autoCapitalize="none"
-          />
+          {/* ⚠️ **一覧が多すぎて探せない**ので、名前で絞り込めるようにする。
+              ⚠️ **見出しを付ける。** プレースホルダだけだと、消したときに
+              **どこが入力欄なのか分からなくなる**（下のアプリ行と同じ見た目のため）。 */}
+          <Text style={styles.fieldLabel}>アプリを絞り込む</Text>
+          <View style={styles.searchRow}>
+            <TextInput
+              style={[styles.input, styles.searchInput]}
+              value={appQuery}
+              onChangeText={setAppQuery}
+              placeholder="アプリ名を入力"
+              placeholderTextColor="#888899"
+              autoCorrect={false}
+              autoCapitalize="none"
+            />
+            {/* 📌 **入力があるときだけ×を出す**（消すために全選択させない）。 */}
+            {appQuery !== "" && (
+              <Pressable
+                style={styles.searchClear}
+                onPress={() => setAppQuery("")}
+              >
+                <Text style={styles.searchClearText}>✕</Text>
+              </Pressable>
+            )}
+          </View>
 
           {apps.length === 0 ? (
             <Text style={styles.note}>アプリの一覧を取得できませんでした。</Text>
@@ -428,32 +459,50 @@ export default function Settings() {
                   <Text style={styles.note}>該当するアプリがありません。</Text>
                 );
               }
-              const row = (app: LaunchableApp) => (
-                <Pressable
-                  key={app.packageName}
-                  style={[
-                    styles.appRow,
-                    returnApp === app.packageName && styles.appRowSelected,
-                  ]}
-                  onPress={() => void onSelectReturnApp(app.packageName)}
-                >
-                  <Text style={styles.appRowText} numberOfLines={1}>
-                    {returnApp === app.packageName ? "◉" : "○"}　{app.label}
-                  </Text>
-                </Pressable>
+              /**
+               * アプリ1件の行。
+               *
+               * ⚠️ **「最近選んだもの」には×を付ける。** 誤操作で選んでしまった
+               * ものが上位に居座ると、**探す手間を減らすための場所が逆に邪魔になる。**
+               */
+              const row = (app: LaunchableApp, removable = false) => (
+                <View key={app.packageName} style={styles.appRowWrap}>
+                  <Pressable
+                    style={[
+                      styles.appRow,
+                      styles.appRowGrow,
+                      returnApp === app.packageName && styles.appRowSelected,
+                    ]}
+                    onPress={() => void onSelectReturnApp(app.packageName)}
+                  >
+                    <Text style={styles.appRowText} numberOfLines={1}>
+                      {returnApp === app.packageName ? "◉" : "○"}　{app.label}
+                    </Text>
+                  </Pressable>
+                  {removable && (
+                    <Pressable
+                      style={styles.recentRemove}
+                      onPress={() => void onRemoveRecent(app.packageName)}
+                    >
+                      <Text style={styles.recentRemoveText}>✕</Text>
+                    </Pressable>
+                  )}
+                </View>
               );
               return (
                 <>
                   {recent.length > 0 && (
                     <>
-                      <Text style={styles.groupLabel}>最近選んだもの</Text>
-                      {recent.map(row)}
+                      <Text style={styles.groupLabel}>
+                        最近選んだもの（✕ で一覧から消せます）
+                      </Text>
+                      {recent.map((app) => row(app, true))}
                       {rest.length > 0 && (
                         <Text style={styles.groupLabel}>すべてのアプリ</Text>
                       )}
                     </>
                   )}
-                  {rest.map(row)}
+                  {rest.map((app) => row(app))}
                 </>
               );
             })()
@@ -519,6 +568,9 @@ const styles = StyleSheet.create({
   },
   clearButtonText: { color: "#FF9E7A", fontSize: 15, fontWeight: "bold" },
   message: { fontSize: 14, color: "#7FD1AE", textAlign: "center" },
+  // 行と「×」を横に並べる。⚠️ ×が無い行でも幅が変わらないようにする。
+  appRowWrap: { flexDirection: "row", gap: 8, alignItems: "stretch" },
+  appRowGrow: { flex: 1 },
   appRow: {
     backgroundColor: "#2A2A3E",
     paddingVertical: 12,
@@ -529,6 +581,32 @@ const styles = StyleSheet.create({
   },
   appRowSelected: { borderColor: "#FF6B35" },
   appRowText: { color: "#FFFFFF", fontSize: 15 },
+  /**
+   * 「最近選んだもの」から外す×。
+   *
+   * ⚠️ **選ぶ側と押し間違えない大きさにする。** 小さすぎると誤爆し、
+   * 大きすぎると本来の目的（選ぶ）を邪魔する。
+   */
+  recentRemove: {
+    width: 48,
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: "#3A3A4E",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  recentRemoveText: { color: "#888899", fontSize: 18, fontWeight: "bold" },
+  // 絞り込み欄と、その中身を消す×。
+  searchRow: { flexDirection: "row", gap: 8, alignItems: "stretch" },
+  searchInput: { flex: 1 },
+  searchClear: {
+    width: 48,
+    borderRadius: 8,
+    backgroundColor: "#2A2A3E",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  searchClearText: { color: "#AAAAAA", fontSize: 18, fontWeight: "bold" },
   divider: {
     borderTopWidth: 1,
     borderTopColor: "#3A3A4E",

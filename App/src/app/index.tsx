@@ -1122,8 +1122,11 @@ export default function Index() {
               <Text style={styles.countdown}>
                 {remainingSec === null ? "—" : `あと ${remainingSec} 秒`}
               </Text>
+              {/* ⚠️ **秒数はカウントダウンが出しているので、ここでは繰り返さない。**
+                  以前この行に上限の秒数を書こうとして「0秒」と出す誤りを入れた
+                  （固定の文字列を置いてしまった）。**同じ値を2箇所に書かない。** */}
               <Text style={styles.recordingNote}>
-                インカムのボタンをもう一度押すと送信。押さなくても0秒で自動送信
+                インカムのボタンをもう一度押すと、すぐ送信します
               </Text>
             </>
           )}

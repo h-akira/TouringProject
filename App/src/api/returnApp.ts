@@ -118,6 +118,25 @@ export async function saveReturnApp(packageName: string): Promise<string[]> {
 }
 
 /**
+ * 「最近選んだもの」から1件だけ消す。
+ *
+ * ⚠️ **誤操作で選んでしまったものが残り続ける。** 一覧の上位は
+ * **探す手間を減らすための場所**なので、要らないものが居座ると逆効果になる。
+ *
+ * 📌 **いま戻り先に選んでいるアプリでも消せる。**
+ * 「最近選んだもの」は**一覧の並び順の話**であって、選択そのものではない
+ * （消しても戻り先の設定は変わらない）。
+ *
+ * @returns 更新後の「最近選んだもの」
+ */
+export async function removeRecentApp(packageName: string): Promise<string[]> {
+  const { recent } = await loadReturnApp();
+  const next = recent.filter((p) => p !== packageName);
+  await AsyncStorage.setItem(RECENT_KEY, JSON.stringify(next));
+  return next;
+}
+
+/**
  * 一覧を「最近選んだものが先」に並べ替え、必要なら名前で絞り込む。
  *
  * ⚠️ **インストール済みアプリは数が多く、目的のものを探せない。**
