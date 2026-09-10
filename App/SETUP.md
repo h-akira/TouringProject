@@ -130,8 +130,8 @@ AWS_PROFILE=touring aws apigateway get-api-key \
 ⚠️ **通常の Development Build は起動時に Metro（開発サーバー）へJSを取りに行く**ので、
 **Macから離れると起動しない。** バイクに乗るなら**JSを焼き込んだビルド**が要る。
 
-📌 **これは「配布」ではなく「自分が走るため」**（利用者は1人）。
-**署名やストア対応には踏み込まない。**
+📌 **これは「自分が走るため」のビルド**（Metro無しで動けばよい）。
+📌 **人に配るためのビルドは別**（下記「Playストアに出すビルド」）。
 
 ### 作り方（release）
 
@@ -184,9 +184,14 @@ XXXXXXXX    unauthorized  ← ⚠️ 実機の画面で「許可」を押す
 APKファイルを実機で直接開く方法だと「提供元不明のアプリ」の許可が要るが、
 **`adb install` はその経路を通らない。**
 
-📌 **`-r` で上書きインストールできる。** `android/app/build.gradle` の release は
-**debugと同じキーストアを使う**ため署名が変わらず、
+📌 **`-r` で上書きインストールできる。** 上の手順（`.env` に署名鍵を設定していない状態）では
+release も **debugと同じキーストアで署名される**ため、
 **保存済みのAPIキー・録音の設定・戻り先アプリは消えない。**
+
+⚠️ **署名鍵を設定してからビルドしたAPKは、署名が変わるので上書きできない**
+（`adb install -r` が `INSTALL_FAILED_UPDATE_INCOMPATIBLE` で失敗する）。
+**一度アンインストールが要る＝保存済みの設定は消える。**
+📌 **走行用のAPKを作るときは `.env` の `TRG_*` を外しておくと混ざらない。**
 
 ### ✅ release でも `console.log` は出る（確認済み）
 
@@ -219,6 +224,7 @@ APK=android/app/build/outputs/apk/release/app-release.apk
 # ① JSバンドルが入ったか（⚠️ これが本体。debug APK には入っていない）
 unzip -l "$APK" | grep index.android.bundle
 # ② 署名がdebugキーストアか（＝上書きインストールできる）
+#    ⚠️ 配信用は upload key で署名される（下記「Playストアに出すビルド」）
 "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --print-certs "$APK" | grep "Signer #1"
 # ③ ハンズフリーの intent-filter と <queries> が生きているか
 "$ANDROID_HOME/build-tools/36.0.0/aapt2" dump xmltree --file AndroidManifest.xml "$APK" \
@@ -249,6 +255,96 @@ for p in sys.argv[1:]:
 
 📌 **`expo-dev-client` は `package.json` に入れたままでよい。**
 release APKには**含まれない**ことを確認済み（Metroでの開発には引き続き要る）。
+
+## Playストアに出すビルド（内部テスト用）
+
+⚠️ **上の release APK とは別物。** **Playに出すのは AAB**（Android App Bundle）で、
+**専用の署名鍵**が要る。方針の経緯は [adr/009](../adr/009_play_internal_testing_release.md)。
+
+| | 走るためのAPK | Playに出すAAB |
+|---|---|---|
+| コマンド | `assembleRelease` | **`npm run bundle:play`** |
+| 署名 | debug鍵でよい | ⚠️ **upload key が必須** |
+| ABI | `arm64-v8a` だけ | ⚠️ **全ABI**（配る相手の端末を選べない） |
+
+### 1. 署名鍵を作る（初回だけ・⚠️ 不可逆）
+
+⚠️ **リポジトリの中に作らないこと。** リポジトリを消すと鍵まで消える。
+
+```sh
+mkdir -p ~/.keystore
+keytool -genkeypair -v -storetype JKS \
+  -keystore ~/.keystore/touring-upload.jks \
+  -alias upload -keyalg RSA -keysize 2048 -validity 10000
+```
+
+⚠️ **`-validity 10000`（約27年）にする。** 期限が切れると更新を出せなくなる。
+📌 **対話で聞かれる氏名・組織は、内部テストなら適当でよい**（一般には見えない）。
+⚠️ **パスワードは控えておくこと**（後で `.env` に書く）。
+
+📌 **鍵を失っても致命的ではない。** Play App Signing を使えば
+**Play Console から upload key を再登録できる**（24〜48時間）。
+⚠️ **回復不能なのは Google が預かる app signing key の方**で、そちらは自分では持たない。
+
+### 2. `.env` に場所とパスワードを書く
+
+```sh
+# App/.env（⚠️ gitignore済。絶対にコミットしない）
+TRG_KEYSTORE_PATH=/Users/<あなた>/.keystore/touring-upload.jks
+TRG_KEYSTORE_PASSWORD='<キーストアのパスワード>'
+TRG_KEY_ALIAS=upload
+TRG_KEY_PASSWORD='<鍵のパスワード>'
+```
+
+⚠️ **パスワードは必ずシングルクォートで囲む。**
+**この `.env` はシェルの `source` で読まれる**ので、⚠️ **裸で書くと
+`#` 以降が捨てられ、空白でコマンドとして解釈される**（変数が空になり、
+**署名がエラーになる**）。📌 **囲めば記号も空白もそのまま通る。**
+
+📌 **`build.gradle` には書き込まれない。** Gradle が**ビルド時に環境変数として読む**ので、
+**生成物に平文で残らない**（`plugins/withReleaseSigning.js`）。
+
+### 3. AABを作る
+
+```sh
+cd App
+# ⚠️ version を先に上げる（versionCode の元になる）
+ANDROID_HOME="$HOME/Library/Android/sdk" npm run bundle:play
+```
+
+できるもの: `android/app/build/outputs/bundle/release/app-release.aab`（**約72MB**）。
+📌 **APKより大きいのは全ABIを含むから。** ⚠️ **利用者の端末に届くのは
+Playが分割したぶんだけ**なので、ダウンロードサイズは増えない。
+
+⚠️ **`npm run bundle:play` が `TRG_ALL_ABI=1` と `--clean` を内包している**
+（全ABIへの切り替え忘れを防ぐため）。⚠️ **その分ビルドは長い**（4〜5分）。
+
+### 4. 確かめること
+
+```sh
+AAB=android/app/build/outputs/bundle/release/app-release.aab
+# ① 全ABIが入ったか（4つ出れば正しい）
+unzip -l "$AAB" | grep -oE 'lib/[a-z0-9_-]+/' | sort -u
+# ② upload key で署名されたか（⚠️ 証明書の中身を見る。ファイル名では判別しない）
+unzip -p "$AAB" 'META-INF/*.RSA' | keytool -printcert | grep -E '所有者|Owner'
+#    ⚠️ "CN=Android Debug" と出たら debug 鍵。Playには出せない
+# ③ versionCode が上がったか（app.json の version から導出される）
+grep versionCode android/app/build.gradle
+```
+
+⚠️ **`versionCode` は `app.json` の `version` から自動で決まる**
+（`1.34.0` → `13400`。`plugins/withVersionCode.js`）。
+⚠️ **Playは同じ番号を二度受け付けない**ので、**出すたびに `version` を上げる。**
+
+### 5. アップロード
+
+⚠️ **初回だけは Play Console の画面から手で上げる**
+（Play Developer API は**既に存在するアプリしか更新できない**）。
+
+⚠️ **AABは実機に直接インストールできない。** 手元で動作確認するなら
+**上の release APK を使う**か、内部テストに上げてPlay経由で入れる。
+
+---
 
 ## 困ったとき
 

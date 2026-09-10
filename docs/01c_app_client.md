@@ -197,12 +197,12 @@ dB表示・騒音ガードごと消した**（[adr/008](../adr/008_end_of_speech
 
 | | |
 |---|---|
-| 署名 | **debugと同じキーストア**（`android/app/build.gradle`）＝**上書きインストールで設定が消えない** |
+| 署名 | **debugと同じキーストア**＝**上書きインストールで設定が消えない**（⚠️ **配信用は別の鍵**。§8b） |
 | ログ | ✅ **`console.log` は release でも出る**（`[vad]` / `[handsfree]` を `adb logcat` で追える） |
 | 手順 | [App/SETUP.md](../App/SETUP.md)「実走行用のビルド」 |
 
-📌 **ストア公開・複数ユーザー対応はスコープ外**（[00](00_user_stories.md) §5）なので、
-**独自の署名鍵は用意しない。**
+📌 **複数ユーザー対応はスコープ外**（[00](00_user_stories.md) §5）。
+📌 **人に配るためのビルドは別に用意する**（§8b）。
 
 ## 8a. ⚠️ ビルドはCPUアーキテクチャを1種類だけにする
 
@@ -232,7 +232,35 @@ dB表示・騒音ガードごと消した**（[adr/008](../adr/008_end_of_speech
 
 ⚠️ **エミュレータ（`x86_64`）では動かなくなる。**
 **実機でしか確認しない**方針なので許容している（[docs/00](00_user_stories.md) §5）。
-使うなら `withSingleAbi.js` の `ANDROID_ARCHITECTURES` に足す。
+
+⚠️ **ただし配信用のビルドは全ABIにする**（§8b）。**配る相手の端末は選べない**ため。
+📌 **環境変数 `TRG_ALL_ABI` で切り替える**（`withSingleAbi.js`）。
+
+## 8b. 配信用のビルド（Playの内部テスト）
+
+**指定した相手にだけ配る**ため、**Google Play の内部テスト**に出す
+（[adr/009](../adr/009_play_internal_testing_release.md)）。⚠️ **本番公開はしない。**
+
+| | 走るためのAPK（§8） | 配信用のAAB |
+|---|---|---|
+| **形式** | APK | ⚠️ **AAB**（Playが要求する） |
+| **署名** | debug鍵 | ⚠️ **upload key** |
+| **ABI** | `arm64-v8a` のみ | ⚠️ **全4種** |
+| **コマンド** | `assembleRelease` | **`npm run bundle:play`** |
+
+**`versionCode` は `app.json` の `version` から導出する**（`1.35.0` → `13500`。
+`plugins/withVersionCode.js`）。⚠️ **Playは同じ番号を二度受け付けない。**
+
+**署名の設定は環境変数から読む**（`plugins/withReleaseSigning.js`）。
+⚠️ **鍵もパスワードも `build.gradle` に書き込まない**
+（`android/` は生成物だが、**平文で残ると事故のもと**）。
+📌 **鍵の原本はリポジトリの外**（`~/.keystore/`）。⚠️ **未設定なら debug 鍵のまま**なので、
+**日常の開発は影響を受けない。**
+
+📌 **AABは全ABIを含むので約72MBと大きい**が、⚠️ **利用者に届くのは
+Playが端末ごとに分割したぶんだけ**なのでダウンロードは増えない。
+
+手順は [App/SETUP.md](../App/SETUP.md)「Playストアに出すビルド」。
 
 ## 9. 画面
 

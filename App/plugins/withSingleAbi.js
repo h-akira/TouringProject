@@ -16,8 +16,20 @@ const { withGradleProperties } = require("@expo/config-plugins");
 // ⚠️ **エミュレータ（x86_64）では動かなくなる。**
 // 本プロジェクトは**実機でしか確認しない**方針なので許容する
 // （`docs/00_user_stories.md` §5「やらないこと」）。
-// 使うことになったら、下の値に `x86_64` を足す。
-const ANDROID_ARCHITECTURES = "arm64-v8a";
+//
+// ⚠️ **ただし配信用のビルドは別。** Playに出すAABは**配る相手の端末を選べない**ので、
+// **全ABIを含める必要がある**（`arm64` だけだと32bit端末で動かない）。
+// 📌 **AABはABIごとの分割をPlay側がやる**ので、
+// **全部入れても利用者のダウンロードサイズは増えない**（`adr/009`）。
+//
+// ⚠️ **環境変数 `TRG_ALL_ABI` で切り替える。**
+// 📌 **人が思い出さなくてよいよう、`npm run bundle:play` に埋め込んである。**
+const ALL_ARCHITECTURES = "armeabi-v7a,arm64-v8a,x86,x86_64";
+const DEVICE_ARCHITECTURE = "arm64-v8a";
+
+const ANDROID_ARCHITECTURES = process.env.TRG_ALL_ABI
+  ? ALL_ARCHITECTURES
+  : DEVICE_ARCHITECTURE;
 
 const withSingleAbi = (config) => {
   return withGradleProperties(config, (config) => {
