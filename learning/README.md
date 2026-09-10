@@ -37,6 +37,7 @@
 - [x] Android の Intent 解決の仕組み（intent-filter・preferred activity）
 - [x] 音の扱い方（録音・音量(dB)・VAD・飽和）
 - [x] 指定した人にだけアプリを配る（配信手段・開発者確認・署名）
+- [x] Androidアプリの署名とストアへの提出（キーストア・AAB・versionCode）
 - [ ] Android の権限・バックグラウンド動作・Foreground Service の基礎
 - [ ] センサー（方位・進行方向の算出）
 
@@ -64,6 +65,7 @@
 - [11. Android の Intent 解決の仕組み](./11_android_intent_resolution.md)
 - [12. 音の扱い方（録音・音量(dB)・VAD）](./12_audio_recording_and_vad.md)
 - [13. 指定した人にだけアプリを配る（限定配信）](./13_private_app_distribution.md)
+- [14. Androidアプリの署名とストアへの提出](./14_android_app_signing_and_release.md)
 
 ### AI（51〜）
 
