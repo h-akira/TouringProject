@@ -146,7 +146,13 @@ ANDROID_HOME="$HOME/Library/Android/sdk" ./android/gradlew -p android assembleRe
 `SDK location not found` で失敗する。
 ⚠️ **`.env` はビルド時に焼き込まれる**（`EXPO_PUBLIC_*`）ので、**ビルド前に正しいこと。**
 
-できるもの: `android/app/build/outputs/apk/release/app-release.apk`（約108MB・ビルド約9分）
+できるもの: `android/app/build/outputs/apk/release/app-release.apk`
+**約45MB**（フルビルド **5分22秒** / 差分ビルドは30秒前後）。
+
+📌 **`arm64-v8a` だけをビルドしている**（`plugins/withSingleAbi.js`）。
+⚠️ **既定の4アーキテクチャだと `App/` が 18.9GB まで膨らむ**
+（`.so` が `node_modules` 配下に積み上がる）。詳細は
+[docs/01c](../docs/01c_app_client.md) §8a。
 
 ### 実機へ入れる
 
