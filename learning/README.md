@@ -36,6 +36,7 @@
 - [x] Expo Development Build と Config Plugin（なぜ・どうやってネイティブコードに踏み込むか）
 - [x] Android の Intent 解決の仕組み（intent-filter・preferred activity）
 - [x] 音の扱い方（録音・音量(dB)・VAD・飽和）
+- [x] 指定した人にだけアプリを配る（配信手段・開発者確認・署名）
 - [ ] Android の権限・バックグラウンド動作・Foreground Service の基礎
 - [ ] センサー（方位・進行方向の算出）
 
@@ -62,6 +63,7 @@
 - [10. Expo Development Build と Config Plugin](./10_expo_development_build.md)
 - [11. Android の Intent 解決の仕組み](./11_android_intent_resolution.md)
 - [12. 音の扱い方（録音・音量(dB)・VAD）](./12_audio_recording_and_vad.md)
+- [13. 指定した人にだけアプリを配る（限定配信）](./13_private_app_distribution.md)
 
 ### AI（51〜）
 
