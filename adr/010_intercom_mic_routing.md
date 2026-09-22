@@ -75,7 +75,8 @@ audioManager.setCommunicationDevice(deviceInfo)   // ← そこに入力デバ�
 
 ✅ **`bluetooth-sco-headset-microphones` → `primary-capture` の経路で録れた**（最大 **-13.5 dB**）。
 ✅ ⚠️ **ドアを閉めた別室・小声でも録れた** — **本体マイクでは説明がつかない。**
-✅ **SCO確立は 270ms**（アプリから見た往復で 992ms）。⚠️ **走行中の遅延として許容できる。**
+✅ **SCO確立は 270〜500ms**（アプリから見た往復で 992ms）。⚠️ **走行中の遅延として許容できる。**
+✅ **本アプリ（v1.36.0）でも別室テストで成立**（⚠️ **本アプリ自身が SCO を張ることをログで確認**）。
 ✅ **Googleレコーダーも同じ公開APIを呼んでいた**（`isPrivileged: false`）。⚠️ **特権APIではない。**
 
 **詳細は `pre-research/mic-routing/FINDINGS.md`。**

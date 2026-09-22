@@ -69,10 +69,11 @@ AHal::BT: Enable: bluetooth-sco-headset-microphones done
 
 | 測り方 | 値 |
 |---|---|
-| **ログ**（`setCommunicationDevice` → `state: 12`） | ⚠️ **270〜300ms** |
+| **ログ**（`setCommunicationDevice` → `state: 12`） | ⚠️ **270〜500ms** |
 | **アプリから見た往復** | **992ms** |
 
 ⚠️ **A2DP で音楽が鳴っていない状態の値。** 📌 **再生中は伸びうるので、必要なら測り直す。**
+📌 **本アプリ（`App/` v1.36.0）では 496ms**（⚠️ **検証アプリより遅いが、2秒の上限には余裕がある**）。
 
 ### ⚠️ `setAudioModeAsync` は使えない
 
@@ -117,7 +118,19 @@ setCommunicationRouteForClient for uid: ... (com.google.android.apps.recorder)
 
 ⚠️ **特権APIではないので、同じ呼び方をすれば同じように録れる。**
 
-## 6. ⚠️ 本体マイクで録っていたときの音（参考）
+## 6. ✅ 本アプリでも成立した（2026-09-22）
+
+**`App/` v1.36.0 で別室テストに成功。** ⚠️ **本アプリ自身が SCO を張っている:**
+
+```
+23:50:11.890  setCommunicationDevice()  device: role:output type:bt_sco
+              from u/pid:<uid>          ← ⚠️ com.touringproject.app
+23:50:12.386  BtHelper.onScoAudioStateChanged, state: 12    ← ✅ 確立（496ms）
+```
+
+📌 **検証アプリでの成立が、本アプリでも再現した。**
+
+## 7. ⚠️ 本体マイクで録っていたときの音（参考）
 
 **走行中の録音を帯域ごとに測った値**（⚠️ **インカムが経路に入る前のもの**）:
 
@@ -134,11 +147,11 @@ setCommunicationRouteForClient for uid: ... (com.google.android.apps.recorder)
 > 📌 **後処理でのノイズ除去が63パターン全滅した**（[pre-research/denoise/](../denoise/)）のも、
 > ⚠️ **声が届いていなかったからと考えると辻褄が合う** — **無い信号は復元できない。**
 
-## 7. まだ分かっていないこと
+## 8. まだ分かっていないこと
 
 | # | 未確認 | どう確かめるか |
 |---|---|---|
 | 1 | ⚠️ **インカム経由なら走行中に聞き取れるか** | ⚠️ **本命。** **経路が直って初めて測れる** |
 | 2 | ⚠️ **`voice_communication` を捨ててよいか** | **端末側のノイズ除去が無くなる。** ⚠️ **インカムの CVC だけで足りるか**を走行で測る |
 | 3 | ⚠️ **エコーが出ないか** | `voice_communication` は**エコーキャンセル**も担う |
-| 4 | **A2DP 再生中でも同じ速さで張れるか** | ⚠️ **270msは音楽が鳴っていない状態の値** |
+| 4 | **A2DP 再生中でも同じ速さで張れるか** | ⚠️ **270〜500msは音楽が鳴っていない状態の値** |
