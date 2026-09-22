@@ -35,7 +35,7 @@ audioManager.setCommunicationDevice(deviceInfo)   // ← そこに入力デバ�
 
 > **Only devices in a sink role (AKA output devices) can be specified.
 > The matching source device is selected automatically by the platform.**
-> — AOSP javadoc（`AudioManager.setCommunicationDevice`）
+> — [AudioManager.setCommunicationDevice](https://developer.android.com/reference/android/media/AudioManager#setCommunicationDevice(android.media.AudioDeviceInfo))
 
 ⚠️ **出力(sink)しか受け付けないので `false` が返る**が、**`expo-audio` はその戻り値を捨てている。**
 **だからアプリ側にエラーが一切見えなかった。**
