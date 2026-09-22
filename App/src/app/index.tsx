@@ -35,6 +35,12 @@ import {
 } from "@/api/recordingSettings";
 import { loadReturnApp } from "@/api/returnApp";
 import AppForeground from "@/native/app-foreground";
+import {
+  acquireMicRoute,
+  describeMicRoute,
+  releaseMicRoute,
+  type MicRoute,
+} from "@/api/micRoute";
 import type {
   AskRequest,
   AskAcceptedResponse,
@@ -259,6 +265,15 @@ export default function Index() {
   // 録音を始めた時刻。⚠️ **短すぎる録音を弾く**ために使う
   // （インカムのボタンのチャタリング対策。adr/008）。
   const recordingStartedAt = useRef<number | null>(null);
+
+  // ⚠️ **どのマイクで録ったか**（adr/010）。
+  // 📌 **「インカムで録れているつもりが本体マイクだった」を二度と起こさない**ため、
+  // 録音ごとに残す。⚠️ **実際これが無くて走行1回分を誤認した。**
+  const micRouteRef = useRef<MicRoute | null>(null);
+
+  // ⚠️ **インカムがあるのに経路を張れなかったときだけ**画面に出す。
+  // 📌 **未接続（室内利用）では何も出さない** — **正常な使い方なので邪魔になる。**
+  const [micWarning, setMicWarning] = useState<string | null>(null);
   // 自動送信までの残り秒数。⚠️ **走行中に画面を見る唯一の場面がここ。**
   // 「2回目を押さずに待つ」ときに**あと何秒かが分からないと待てない**
   // （押すべきか待つべきかを判断できない）。null なら録音していない。
@@ -592,6 +607,21 @@ export default function Index() {
       // 録音中は他の音を止める。読み上げの途中で録り始めると自分の声に
       // 回答が被る。
       await setAudioModeAsync(AUDIO_MODE_RECORDING);
+      // ⚠️ **録音を始める前にインカムの経路を張る**（adr/010）。
+      // これが無いと本体マイクで録ってしまい、走行中は風とエンジン音に埋もれる。
+      // ⚠️ **失敗しても止めない。** 走行中に録音が始まらない方が致命的なので、
+      // 本体マイクで録って続行する（インカム未接続の室内利用も同じ経路）。
+      const route = await acquireMicRoute();
+      micRouteRef.current = route;
+      console.log("[recording] mic:", describeMicRoute(route));
+      // ⚠️ **「インカムはあるのに使えていない」ときだけ知らせる。**
+      // **本体マイクで録ると走行中は風とエンジン音に埋もれる**ので、
+      // 停車後に気づけるようにしておく（走行中は画面を見られない）。
+      setMicWarning(
+        route.kind === "builtin" && route.reason === "acquire-failed"
+          ? "⚠️ インカムに接続できず、本体マイクで録音しています"
+          : null,
+      );
       await recorder.prepareToRecordAsync();
       recorder.record();
       recordingRef.current = true;
@@ -716,6 +746,7 @@ export default function Index() {
     void (async () => {
       try {
         await recorder.stop();
+        await releaseMicRoute();
         await setAudioModeAsync(AUDIO_MODE_PLAYBACK);
       } catch (e) {
         // ⚠️ **止められなくても音声モードだけは必ず戻す。**
@@ -723,6 +754,7 @@ export default function Index() {
         // 走行中は画面を見ないので、無音になった理由に気づけない。
         console.warn("failed to discard the recording", e);
         try {
+          await releaseMicRoute();
           await setAudioModeAsync(AUDIO_MODE_PLAYBACK);
         } catch {
           // ここまで失敗したら打つ手が無い。次の録音開始時に再度試みる。
@@ -768,12 +800,16 @@ export default function Index() {
     try {
       await recorder.stop();
       uri = recorder.uri;
+      // ⚠️ **経路を必ず解放する。** 立てっぱなしだと通話用のモードが残り、
+      // **読み上げが通話経路に流れる**（adr/010）。
+      await releaseMicRoute();
       // 録り終えたら再生できる状態に戻す（読み上げがここで鳴る）。
       await setAudioModeAsync(AUDIO_MODE_PLAYBACK);
     } catch (e) {
       // ⚠️ **失敗しても音声モードは戻す。** 録音向きのまま残すと
       // **以降の読み上げが鳴らなくなり**、走行中はその理由に気づけない。
       try {
+        await releaseMicRoute();
         await setAudioModeAsync(AUDIO_MODE_PLAYBACK);
       } catch {
         // ここまで失敗したら打つ手が無い。
@@ -1128,6 +1164,10 @@ export default function Index() {
               <Text style={styles.recordingNote}>
                 インカムのボタンをもう一度押すと、すぐ送信します
               </Text>
+              {/* ⚠️ **異常なときだけ出る**（インカム未接続では出さない）。 */}
+              {micWarning && (
+                <Text style={styles.micWarning}>{micWarning}</Text>
+              )}
             </>
           )}
         </View>
@@ -1267,6 +1307,8 @@ const styles = StyleSheet.create({
     fontVariant: ["tabular-nums"],
   },
   recordingNote: { fontSize: 13, color: "#FF9E7A", textAlign: "center" },
+  // ⚠️ **異常時だけ出る警告。** 走行中は読めないので、停車後に気づくためのもの。
+  micWarning: { fontSize: 13, color: "#FFD166", textAlign: "center" },
   askArea: { alignSelf: "stretch", alignItems: "center", gap: 12 },
   input: {
     alignSelf: "stretch",

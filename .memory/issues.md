@@ -18,6 +18,8 @@
 
 | 優先度 | 論点 | 何を決めるのか / 現状 | 詳細 |
 |---|---|---|---|
+| 高 | **インカム経由での録音条件をどうするか** | ✅ **経路は解決した**（[adr/010](../adr/010_intercom_mic_routing.md)）。⚠️ **残るのは録音の「条件」**: **①`voice_communication`（端末側のノイズ除去）を捨ててよいか** — ⚠️ **インカムの CVC で足りるかを走行で測る**（📌 **エコーが出ないかも見る**）**②その後の録音条件と送信サイズ** | [pre-research/mic-routing/](../pre-research/mic-routing/) |
+| 高 | **Playへの配信をどう自動化するか** | ⚠️ **`adr/009` D の「当面は手動」を覆す**（⚠️ **走行テストで課題が出たとき、すぐ配れないと困ると判明**）。決めるのは**①アップロード手段**（fastlane / r0adkll / API直接）**②⚠️ 署名鍵をCIに置くか**（⚠️ **`adr/009` C の見直しを含む**）**③引き金**（タグ / 手動 / push全部）。⚠️ **②が本体** | [pre-research/play-cicd/](../pre-research/play-cicd/) |
 | 中 | **周辺検索をどうツール化するか** | 「あの山は？」に答える本命。取得できることは実証済み。**AIが自由度を持って検索できる形**にしたいが、ツールの粒度・呼び出し回数の抑え方が未定。**US-2.03の後** | `pre-research/geocoding/` §5 |
 | 低 | **現在地を個人情報としてどう扱うか** | ⚠️ **座標と解決後の住所の両方**がCloudWatchに残る（Lambda=東京、エージェント=us-east-1 の2箇所。`main.py` が `question[:80]` を出力しており、そこが住所ブロック）。ログ保存の方針を決める。メモ機能を作るなら必須 | `pre-research/geocoding/` §7 |
 
@@ -28,6 +30,7 @@
 
 | 決定日 | 論点 | 結論 | 詳細 |
 |---|---|---|---|
+| 2026-09-22 | **インカムのマイクをどう使うか**（[adr/010](../adr/010_intercom_mic_routing.md)） | ✅ **SCO経路の確立・解放だけを自前のネイティブモジュールで行い、録音は `expo-audio` のまま**（`App/modules/bt-audio-route/`）。⚠️ **真因は `expo-audio` の `setInput()` が仕様違反**（`setCommunicationDevice()` は**出力(sink)しか受け付けない**のに入力を渡し、**黙って `false` で失敗**）。✅ **実機で `bluetooth-sco-headset-microphones` から録れた**（-13.5 dB・確立270ms・⚠️ **別室でも録音成功**）。✅ **Googleレコーダーも同じ公開API**（`isPrivileged: false`）。**却下**: `MODE_IN_COMMUNICATION` だけ（⚠️ **この端末は乗らない**）・patch-package（⚠️ **維持が重い**）・録音ごとネイティブ化（⚠️ **不要**）・`expo-audio` へのPR（⚠️ **SDK 54 には来ない**）。✅ **SCOが張れないときは本体マイクで録って続行**（⚠️ **未接続＝正常・無言／接続済みで失敗＝警告**）。⚠️ **残る未決は「`voice_communication` を捨てるか」** | [adr/010](../adr/010_intercom_mic_routing.md) |
 | 2026-09-10 | **Playで配るための署名・ビルド構成**（[adr/009](../adr/009_play_internal_testing_release.md)） | ✅ **`versionCode` は `app.json` の `version` から config plugin で自動導出**（`1.35.0`→`13500`）。✅ **ABIは既定 `arm64-v8a` のまま、配信用ビルドだけ環境変数で全ABI**（⚠️ **切替はnpm scriptに埋め込む**）。✅ **upload key の原本は `~/.keystore/`（リポジトリ外）のみ**・パスワードは `App/.env` 経由。📌 **バックアップは開発者個人の道具で行うのでプロジェクトでは扱わない**。✅ **当面は手動でアップロード**（⚠️ **どのみち初回は手動が必須**。自動化するならGitHub Actionsで、⚠️ **AWSのCodeBuildには入れない**）。⚠️ **訂正: 鍵を失っても Play App Signing なら upload key を再登録できる**（24〜48時間）。**回復不能なのはGoogleが預かる app signing key の方** | [adr/009](../adr/009_play_internal_testing_release.md) |
 | 2026-09-10 | **指定した人にだけ配信する手段をどれにするか** | ✅ **Google Play の内部テスト**（100人まで・審査待ちなし・一般には見えない）。⚠️ **本番公開はしない**（12人を14日間集めるクローズドテストが必要になるため。内部テストなら不要で、**Data safetyフォームも免除**）。✅ **Play Console の $25 + 政府発行の身分証は許容**と決定。⚠️ **無料の「限定配信」（20台・身分証不要）はPlayには使えない**（Playの外で配る人向けの別製品）。**却下**: 手渡し（⚠️ **2027年の開発者確認で塞がれる方向**・更新を配り直す手間） | [learning/13](../learning/13_private_app_distribution.md) |
 | 2026-09-09 | **走行中の「喋り終わり」をどう判定するか** | ✅ **インカムのボタン再押し（C）＋録音の上限（D）の併用**（[adr/008](../adr/008_end_of_speech_detection.md)）。⚠️ **音量ベースのVADは既定で切る**（消しはしない。停車中は正しく働くため）。⚠️ **切ると騒音ガードも一緒に止まる**（走行中は必ず捨てるため）。**却下**: 閾値・適応閾値の調整（⚠️ **飽和は情報が消えているので原理的に直らない**）。**保留**: B=オンデバイス音声認識（⚠️ **成立すればTranscribe経路を捨てる判断**を含むので、Cが成立すれば不要）。✅ **2026-09-10 に実機で成立を確認**（[FINDINGS.md](../pre-research/handsfree/FINDINGS.md) §16）。📌 **Bは不要になった** | [adr/008](../adr/008_end_of_speech_detection.md) |
