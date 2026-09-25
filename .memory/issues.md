@@ -18,7 +18,7 @@
 
 | 優先度 | 論点 | 何を決めるのか / 現状 | 詳細 |
 |---|---|---|---|
-| 高 | **インカム経由での録音条件をどうするか** | ✅ **経路は解決した**（[adr/010](../adr/010_intercom_mic_routing.md)）。⚠️ **残るのは録音の「条件」**: **①`voice_communication`（端末側のノイズ除去）を捨ててよいか** — ⚠️ **インカムの CVC で足りるかを走行で測る**（📌 **エコーが出ないかも見る**）**②その後の録音条件と送信サイズ** | [pre-research/mic-routing/](../pre-research/mic-routing/) |
+| 高 | **インカム経由での録音条件をどうするか** | ✅ **経路は解決した**（[adr/010](../adr/010_intercom_mic_routing.md)。2026-09-26 に「音声認識」として張る方式へ改訂）。⚠️ **残るのは録音の「条件」**: **①`voice_communication`（端末側のノイズ除去）を捨ててよいか** — ⚠️ **インカムの CVC で足りるかを走行で測る**（📌 **エコーが出ないかも見る**）**②その後の録音条件と送信サイズ** | [pre-research/mic-routing/](../pre-research/mic-routing/) |
 | 高 | **App の型生成が親の `docs/02` に依存している** | ⚠️ **`App/package.json` の `gen:api` が `../docs/02_api_openapi.yaml` を読む**（postinstall）。**親の作業ツリーでは動くが、App を単体でクローンすると `npm install` が失敗する** → ⚠️ **Play配信のCI（GitHub Actions）が App 単体で動かない**。候補: ①CIで親も取得 ②`schema.ts` を追跡する ③契約を App 側に置く。📌 **Play配信の自動化と一緒に決める** | [adr/011](../adr/011_repository_split.md)「影響」 |
 | 高 | **Playへの配信をどう自動化するか** | ⚠️ **`adr/009` D の「当面は手動」を覆す**（⚠️ **走行テストで課題が出たとき、すぐ配れないと困ると判明**）。決めるのは**①アップロード手段**（fastlane / r0adkll / API直接）**②⚠️ 署名鍵をCIに置くか**（⚠️ **`adr/009` C の見直しを含む**）**③引き金**（タグ / 手動 / push全部）。⚠️ **②が本体** | [pre-research/play-cicd/](../pre-research/play-cicd/) |
 | 中 | **周辺検索をどうツール化するか** | 「あの山は？」に答える本命。取得できることは実証済み。**AIが自由度を持って検索できる形**にしたいが、ツールの粒度・呼び出し回数の抑え方が未定。**US-2.03の後** | `pre-research/geocoding/` §5 |
@@ -31,6 +31,7 @@
 
 | 決定日 | 論点 | 結論 | 詳細 |
 |---|---|---|---|
+| 2026-09-26 | **インカムの経路をどう張るか**（adr/010 の改訂） | ✅ **`BluetoothHeadset.startVoiceRecognition()` で「音声認識」として張る。** ⚠️ **仮想通話（`setCommunicationDevice()`）は使わない・併用もしない** — ボタン起動の直後に張れず、⚠️ **録音中のボタンが「電話を切る」になって2回目の押下が届かない。** ✅ **2回目の押下は経路の切断で検知する**（Intent は来ない）。**却下**: 確立待ちを5秒以上に延ばす・「電話を切る」を検知する（起動直後の問題が残る） | [adr/010](../adr/010_intercom_mic_routing.md) 改訂 |
 | 2026-09-26 | **エージェントに現在日時をどこまで渡すか** | **日付＋時刻（分まで・日本時間）を毎回渡す。** 時刻はログからも分かるので隠す意味が無い | `Backend/src/lib/prompt.py` `format_now`・`docs/01b` §5 |
 | 2026-09-25 | **リポジトリを分離するか** | ✅ **分離して submodule で束ねる**（`TouringProject_Agent/_Backend/_App/_CICD`・すべて public・履歴は引き継がない）。**成果物は親に残す。** ✅ **CodeBuild は2つ**（ブランチ分け・CodePipeline・承認なし）。⚠️ **ARN が変わったときだけ Agent のビルドが Backend のビルドを起動する**（Backend は ARN を焼き込むため）。**却下**: 1リポジトリのまま `paths` で振り分け（⚠️ **動くかがフィルタの正しさ頼みになる**）・subtree・完全分離 | [adr/011](../adr/011_repository_split.md) |
 | 2026-09-22 | **インカムのマイクをどう使うか**（[adr/010](../adr/010_intercom_mic_routing.md)） | ✅ **SCO経路の確立・解放だけを自前のネイティブモジュールで行い、録音は `expo-audio` のまま**（`App/modules/bt-audio-route/`）。⚠️ **真因は `expo-audio` の `setInput()` が仕様違反**（`setCommunicationDevice()` は**出力(sink)しか受け付けない**のに入力を渡し、**黙って `false` で失敗**）。✅ **実機で `bluetooth-sco-headset-microphones` から録れた**（-13.5 dB・確立270ms・⚠️ **別室でも録音成功**）。✅ **Googleレコーダーも同じ公開API**（`isPrivileged: false`）。**却下**: `MODE_IN_COMMUNICATION` だけ（⚠️ **この端末は乗らない**）・patch-package（⚠️ **維持が重い**）・録音ごとネイティブ化（⚠️ **不要**）・`expo-audio` へのPR（⚠️ **SDK 54 には来ない**）。✅ **SCOが張れないときは本体マイクで録って続行**（⚠️ **未接続＝正常・無言／接続済みで失敗＝警告**）。⚠️ **残る未決は「`voice_communication` を捨てるか」** | [adr/010](../adr/010_intercom_mic_routing.md) |
