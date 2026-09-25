@@ -65,7 +65,7 @@ Usage Plan でキー単位の流量制限をかける。
 
 出しているのは**キーのID**だけ。Outputs は `describe-stacks` の権限があれば読めるうえ、
 **CIのログにも残る**。値はデプロイ後に `aws apigateway get-api-key --include-value` で取る
-（手順は [Backend/README.md](../Backend/README.md)）。
+（手順は [Backend/README.md](https://github.com/h-akira/TouringProject_Backend/blob/main/README.md)）。
 
 ### ⚠️ キーは `.env` に置かない
 

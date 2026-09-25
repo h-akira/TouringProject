@@ -199,7 +199,7 @@ dB表示・騒音ガードごと消した**（[adr/008](../adr/008_end_of_speech
 |---|---|
 | 署名 | **debugと同じキーストア**＝**上書きインストールで設定が消えない**（⚠️ **配信用は別の鍵**。§8b） |
 | ログ | ✅ **`console.log` は release でも出る**（`[vad]` / `[handsfree]` を `adb logcat` で追える） |
-| 手順 | [App/SETUP.md](../App/SETUP.md)「実走行用のビルド」 |
+| 手順 | [App/SETUP.md](https://github.com/h-akira/TouringProject_App/blob/main/SETUP.md)「実走行用のビルド」 |
 
 📌 **複数ユーザー対応はスコープ外**（[00](00_user_stories.md) §5）。
 📌 **人に配るためのビルドは別に用意する**（§8b）。
@@ -260,7 +260,7 @@ dB表示・騒音ガードごと消した**（[adr/008](../adr/008_end_of_speech
 📌 **AABは全ABIを含むので約72MBと大きい**が、⚠️ **利用者に届くのは
 Playが端末ごとに分割したぶんだけ**なのでダウンロードは増えない。
 
-手順は [App/SETUP.md](../App/SETUP.md)「Playストアに出すビルド」。
+手順は [App/SETUP.md](https://github.com/h-akira/TouringProject_App/blob/main/SETUP.md)「Playストアに出すビルド」。
 
 ## 9. 画面
 

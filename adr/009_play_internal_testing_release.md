@@ -37,7 +37,7 @@
 ### B. ABI（CPUアーキテクチャ）
 
 **ローカルのビルド生成物を 18.9GB → 3.6GB に減らすため、`arm64-v8a` のみに絞っている**
-（[withSingleAbi.js](../App/plugins/withSingleAbi.js)・[docs/01c](../docs/01c_app_client.md) §8a）。
+（[withSingleAbi.js](https://github.com/h-akira/TouringProject_App/blob/main/plugins/withSingleAbi.js)・[docs/01c](../docs/01c_app_client.md) §8a）。
 
 | | 案 | 評価 |
 |---|---|---|

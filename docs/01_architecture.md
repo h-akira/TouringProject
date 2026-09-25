@@ -348,7 +348,7 @@ flowchart LR
 
 | | |
 |---|---|
-| 書く | Agent のデプロイ後（`buildspec.yml`）。⚠️ **東京に書く** |
+| 書く | Agent のデプロイ後（Agent リポジトリの `buildspec.yml`）。⚠️ **東京に書く**。**値が変わったときだけ** |
 | 読む | Backend の SAM が `AWS::SSM::Parameter::Value<String>` で解決 |
 
 ⚠️ **CloudFormationのエクスポートは使えない。** AgentCoreのスタックは Runtime ARN を
@@ -360,19 +360,23 @@ SSMはAPIで読むので、リージョンは引数にすぎない。
 
 ## 11. デプロイ（CI/CD）
 
-**`main` にpushすると CodeBuild が Agent → Backend の順にデプロイする**（[CICD/](../CICD/)）。
+**Agent・Backend はそれぞれ別リポジトリで、`main` にpushすると各自の CodeBuild がデプロイする**
+（テンプレートは [TouringProject_CICD](https://github.com/h-akira/TouringProject_CICD)）。
 
 ```mermaid
 flowchart LR
-    push["GitHub push"] --> test["Backend テスト"]
-    test --> agent["Agent<br/>us-east-1"]
+    pa["push<br/>Agent"] --> agent["Agent<br/>us-east-1"]
     agent --> ssm[("SSM<br/>⚠️ 東京に書く")]
-    ssm --> backend["Backend<br/>東京"]
+    agent -. "ARNが変わったときだけ" .-> backend
+    pb["push<br/>Backend"] --> test["テスト"] --> backend["Backend<br/>東京"]
+    ssm -. "デプロイ時に解決" .-> backend
 ```
 
-- ⚠️ **順序は入れ替えられない**（上記のARNの受け渡しのため）。
-- **テストが落ちたらデプロイしない**（`pre_build` で `pytest`）。
-- **`App/` は対象外。** Expo経由で配布するのでAWSにデプロイするものが無い。
+- ⚠️ **Backend は ARN をデプロイ時に焼き込む**（Lambda の環境変数と IAM ポリシー）。
+  **だから ARN が変わったら（初回・ランタイム名の変更）、Agent のビルドが Backend のビルドを起動する。**
+- **テストが落ちたらデプロイしない**（Backend の `pre_build` で `pytest`）。
+- **App は対象外。** Play で配布するのでAWSにデプロイするものが無い。
+- ⚠️ **親リポジトリの submodule ポインタの更新ではデプロイされない。**
 
 ## 12. 未決事項
 

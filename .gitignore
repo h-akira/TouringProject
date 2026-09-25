@@ -4,20 +4,12 @@ dist/
 build/
 *.tsbuildinfo
 
-# OpenAPI から生成する型。正本は docs/02_api_openapi.yaml。
-# ⚠️ 生成を忘れると tsc が通らないので、npm の postinstall / prestart で
-# 自動生成するようにしてある（App/package.json）。手で叩くなら `npm run gen:api`。
-App/src/api/schema.ts
+# ⚠️ Agent/ Backend/ App/ CICD/ は submodule。それぞれの除外ルールは
+# 各リポジトリの .gitignore にある（親の .gitignore は submodule の中には効かない）。
 
-# === Expo / React Native（app/ 配下は app/.gitignore も参照）===
+# === Expo / React Native（pre-research/ の検証用アプリ向け）===
 .expo/
 web-build/
-# 生成されるネイティブフォルダ（Development Build 時）
-# ⚠️ **先頭の `/` が要る。** `android/` と書くと**深さを問わず一致する**ため、
-# 自前のネイティブモジュール（`App/modules/*/android/`）まで巻き込んで
-# **Kotlinのソースが永久にコミットされない**（ビルドが通らなくなる）。
-/App/android/
-/App/ios/
 
 # === 環境変数・機密情報 ===
 .env
@@ -30,11 +22,10 @@ web-build/
 *.jks
 *.mobileprovision
 
-# === AWS / インフラ（backend/）===
+# === AWS / インフラ（pre-research/ の検証用プロジェクト向け）===
 .aws-sam/
 cdk.out/
 .serverless/
-# samconfig.toml はリポジトリで管理する（スタック名・リージョン等の共有設定。秘密は含めない）
 
 # === AgentCore ===
 # デプロイすると実アカウントID・ARN・エンドポイントURLが書き込まれるため除外。
@@ -69,11 +60,8 @@ pre-research/XX_*.md
 
 # === ローカル専用のデプロイスクリプト（アカウントID等の環境固有の値を含む）===
 deploy-sam.sh
-# CICD/deploy-sample.sh をコピーして作るもの。CodeStar接続ARN（＝アカウントID）を含む。
-# 雛形の deploy-sample.sh は追跡する。
-CICD/deploy.sh
 
-# === 疎通確認に使う音声（Backend/README.md）===
+# === 疎通確認に使う音声 ===
 # ⚠️ 録音には話し手の声が入り、回答音声には現在地が出てくることがある。
 # 手元で試すためだけのものなので追跡しない。
 *.m4a

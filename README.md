@@ -15,16 +15,29 @@
 
 ## 構成
 
+⚠️ **`App/` `Backend/` `Agent/` `CICD/` は submodule**（それぞれ別リポジトリ・[adr/011](adr/011_repository_split.md)）。
+**設計と記録（`docs/` `adr/` `pre-research/` `learning/`）はこの親リポジトリにある。**
+
 | ディレクトリ | 中身 |
 |---|---|
-| [`App/`](App/) | React Native (Expo) アプリ本体 |
-| [`Backend/`](Backend/) | AWSバックエンド（SAM, Python）。API Gateway + Lambda + SQS + DynamoDB |
-| [`Agent/`](Agent/) | AgentCoreのエージェント本体（Strands）。会話の継続とWeb検索を担う |
-| [`CICD/`](CICD/) | 自動デプロイ（CodeBuild）。手順は [`buildspec.yml`](buildspec.yml) |
+| [`App/`](https://github.com/h-akira/TouringProject_App) | React Native (Expo) アプリ本体 |
+| [`Backend/`](https://github.com/h-akira/TouringProject_Backend) | AWSバックエンド（SAM, Python）。API Gateway + Lambda + SQS + DynamoDB |
+| [`Agent/`](https://github.com/h-akira/TouringProject_Agent) | AgentCoreのエージェント本体（Strands）。会話の継続とWeb検索を担う |
+| [`CICD/`](https://github.com/h-akira/TouringProject_CICD) | 自動デプロイ（CodeBuild）を立てるテンプレート。手順は各リポジトリの `buildspec.yml` |
 | [`docs/`](docs/) | **現在の設計。** 要件定義・アーキテクチャ・API仕様 |
 | [`adr/`](adr/) | **決定の記録。** なぜそう決めたか、何を却下したか |
 | [`pre-research/`](pre-research/) | **技術検証。** 実測値と検証スクリプト |
 | [`learning/`](learning/) | **学習教材。** 使った技術の基礎を、既存のWeb知識と対応づけて書いたメモ |
+
+## 取得する
+
+```sh
+git clone --recursive git@github.com:h-akira/TouringProject.git
+# クローン済みで submodule が空なら
+git submodule update --init
+```
+
+⚠️ **`--recursive` を付けないと `App/` などが空のディレクトリになる。**
 
 ## 動かす
 
@@ -32,8 +45,8 @@
 
 ⚠️ **Expo Go では動かない**（US-2.04のハンズフリー起動にネイティブコードが要るため。
 [adr/006](adr/006_handsfree_launch_mechanism.md)）。初回はAndroid Studio等の
-セットアップとネイティブビルドが要る。**使い方は [App/README.md](App/README.md)、
-初回セットアップとトラブルシュートは [App/SETUP.md](App/SETUP.md)**
+セットアップとネイティブビルドが要る。**使い方は [App/README.md](https://github.com/h-akira/TouringProject_App/blob/main/README.md)、
+初回セットアップとトラブルシュートは [App/SETUP.md](https://github.com/h-akira/TouringProject_App/blob/main/SETUP.md)**
 （初回セットアップ・APIキーの取得・開発の中断/再開・つまずいたとき）。
 
 ```sh
@@ -46,12 +59,13 @@ npx expo start          # 2回目以降はこれだけで実機のアプリか�
 
 | やりたいこと | 見るところ |
 |---|---|
-| アプリを動かす | [App/README.md](App/README.md) |
-| バックエンドをデプロイ / APIキーを取り出す | [Backend/README.md](Backend/README.md) |
-| 自動デプロイ（push → CodeBuild） | [CICD/README.md](CICD/README.md) |
+| アプリを動かす | [App/README.md](https://github.com/h-akira/TouringProject_App/blob/main/README.md) |
+| バックエンドをデプロイ / APIキーを取り出す | [Backend/README.md](https://github.com/h-akira/TouringProject_Backend/blob/main/README.md) |
+| 自動デプロイ（push → CodeBuild） | [CICD/README.md](https://github.com/h-akira/TouringProject_CICD/blob/main/README.md) |
 
-> 📌 **通常はデプロイを手で叩かなくてよい。** `main` にpushすると
-> CodeBuild が Agent → Backend の順に自動デプロイする。
+> 📌 **通常はデプロイを手で叩かなくてよい。** **Agent・Backend の各リポジトリの `main` にpushすると、
+> そのリポジトリの CodeBuild が自動デプロイする。**
+> ⚠️ **この親リポジトリで submodule のポインタを更新しても、デプロイはされない。**
 
 ### ドキュメントの使い分け
 
@@ -82,7 +96,7 @@ flowchart LR
 | AI | Amazon Bedrock AgentCore（会話継続・Web検索） |
 | STT / TTS | Amazon Transcribe / Polly |
 | 対象OS | Android |
-| CI/CD | AWS CodeBuild（pushで Agent → Backend を自動デプロイ） |
+| CI/CD | AWS CodeBuild（Agent・Backend のリポジトリごとに、pushで自動デプロイ） |
 
 詳細と選定理由は [docs/01_architecture.md](docs/01_architecture.md)、
 検討の経緯は [pre-research/02_tech_selection.md](pre-research/02_tech_selection.md)。
@@ -100,7 +114,7 @@ flowchart LR
 **インカムのボタン再押し**と**録音の上限**で終える。
 
 📌 **Metro無しで動く単体ビルド（release APK）も用意した**ので、
-**Macから離れて走れる**（[App/SETUP.md](App/SETUP.md)）。
+**Macから離れて走れる**（[App/SETUP.md](https://github.com/h-akira/TouringProject_App/blob/main/SETUP.md)）。
 
 ⚠️ **残るのは実走行での通し確認**と、**限定配信の実現**（[learning/13](learning/13_private_app_distribution.md)）。
 
@@ -113,6 +127,7 @@ flowchart LR
 
 | # | 決定 | 日付 |
 |---|---|---|
+| [011](adr/011_repository_split.md) | Agent・Backend・App・CICD を別リポジトリに分け、この親から submodule で束ねる | 2026-09-25 |
 | [008](adr/008_end_of_speech_detection.md) | 走行中の終話はインカムのボタン再押し＋録音の上限で判定する（音量ベースのVADは走行中に不成立） | 2026-09-09 |
 | [007](adr/007_return_to_map_after_answer.md) | 応答後は設定で選んだアプリをLAUNCHERインテントで開いて戻る | 2026-08-21 |
 | [006](adr/006_handsfree_launch_mechanism.md) | ハンズフリー起動は `VOICE_COMMAND` の intent-filter で受ける（`VoiceInteractionService` 方式から改訂） | 2026-08-17 |

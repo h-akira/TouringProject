@@ -1,0 +1,68 @@
+# 011. Agent・Backend・App・CICD を別リポジトリに分け、親から submodule で束ねる
+
+- **日付**: 2026-09-25
+- **ステータス**: 採用
+- **現在の設計**: [docs/01](../docs/01_architecture.md) §10・§11 / [CICD/README.md](https://github.com/h-akira/TouringProject_CICD/blob/main/README.md)
+
+## 背景
+
+**次に Play への配信を自動化する**（`pre-research/play-cicd/`）。その前に**問題を単純にしたかった。**
+
+1リポジトリに `Agent/` `Backend/` `App/` `CICD/` が同居しており、
+**push の引き金・IAM権限・`buildspec.yml` が1つに絡んでいた。**
+App の CI（GitHub Actions）を足すと、**どの変更で何が動くか**がさらに絡む。
+📌 **Agent と Backend のデプロイ方法は確立済み**で、受け渡しも SSM 経由（[adr/005](005_cross_stack_handoff.md)）なので、
+**分けても再設計は要らない**状態だった。
+
+## 選択肢
+
+### 案A: 1リポジトリのまま、CIだけ分ける
+
+- **CodeBuild をユニットごとに分けるのは不可。** 分けるにはパスで振り分けるしかないが、
+  ⚠️ **`FILE_PATH` は push の headコミットしか見ない**ので、コード変更を**静かに取りこぼす**（[adr/005](005_cross_stack_handoff.md)）。
+- GitHub Actions の `paths` は push 全体の差分で判定するので、**App の CI だけなら成立する。**
+- **却下。** 成立はするが、**「どの push で何が動くか」をフィルタの正しさに依存させる**ことになる。
+  **構成そのもので決まる方が単純。**
+
+### 案B: 完全に分離する（親を解体する）
+
+**却下。** `docs/` `adr/` `learning/` `pre-research/` は**ユニットを跨ぐ成果物**で、置き場所が無くなる。
+
+### 案C: 分離し、親から submodule で束ねる（採用）
+
+参照プロジェクト（同じ開発者の別プロジェクト）で**同じ構成の運用実績がある。**
+
+### 案D: subtree
+
+**却下。** 親に中身が複製されるので、**双方向の同期が重い。** 分けた意味が薄れる。
+
+## 決定
+
+**案C。** 4リポジトリ（`TouringProject_Agent` / `_Backend` / `_App` / `_CICD`、すべて public）を作り、
+**親の同じ場所に submodule として置く。** **成果物（docs/adr/learning/pre-research/.memory）は親に残す。**
+
+- ⚠️ **git履歴は引き継がない。** 各リポジトリは新規の initial commit から始める（履歴は親にある）。
+- **CodeBuild は Agent 用・Backend 用の2つ**（`build-agent.yaml` / `build-backend.yaml`）。
+  **ブランチでの環境分け・CodePipeline・手動承認は入れない。**
+- ⚠️ **ARN が変わったときだけ、Agent のビルドが Backend のビルドを起動する**（下記「影響」）。
+- **App には CI を置かない**（Play 配信の自動化は別に決める）。
+- **サブに `CLAUDE.md` は置かない。** 作業場所は親で、親の `CLAUDE.md` を読む。
+  `App/AGENTS.md`（SDK 54 の歯止め）は**親の「落とし穴」に移して削除した。**
+
+## 影響
+
+- ⚠️ **1本のビルドで保証していた Agent → Backend の順序が消える。**
+  Backend は ARN を**デプロイ時に**Lambda の環境変数と IAM ポリシーへ焼き込むので、
+  **ランタイム名を変えると、SSM が新しくなっても Backend は古いランタイムを呼び続ける**
+  （⚠️ **デプロイは成功し、質問したときに初めて失敗する**）。
+  → **Agent のビルドが SSM の値を比べ、変わったときだけ `codebuild start-build` で Backend を起こす。**
+  初回（SSM が空）も同じ経路で埋まる。
+- ⚠️ **Agent と Backend に跨る変更は、2つの push の間だけ食い違う。** dev しか無いので許容する。
+- ⚠️ **サブを変更するたびに、親でもポインタ更新のコミットが要る。**
+  **親のポインタはデプロイと無関係**（引き金は各サブの `main`）なので、忘れても壊れはしないが古くなる。
+- ⚠️ **push はサブ → 親の順**でないと、親が存在しないコミットを指す。
+- ⚠️ **リンク**: サブの README から親へのリンクは**親の絶対URL**に、
+  親からサブへのリンクは**サブの絶対URL**にした（GitHub 上で単体表示しても切れないように）。
+- ⚠️ **App は型生成で親の `docs/02_api_openapi.yaml` を読む**（`npm run gen:api`）。
+  **親の作業ツリーでは動くが、App を単体でクローンすると生成できない。**
+- **タグ（`v<version>`）は App リポジトリに打つ。** 分離前のタグは親に残る。
