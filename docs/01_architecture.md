@@ -360,7 +360,7 @@ flowchart LR
 
 | | |
 |---|---|
-| 書く | Agent のデプロイ後（Agent リポジトリの `buildspec.yml`）。⚠️ **東京に書く**。**値が変わったときだけ** |
+| 書く | Agent のデプロイ後。⚠️ **東京に書く** |
 | 読む | Backend の SAM が `AWS::SSM::Parameter::Value<String>` で解決 |
 
 ⚠️ **CloudFormationのエクスポートは使えない。** AgentCoreのスタックは Runtime ARN を
@@ -370,25 +370,15 @@ SSMはAPIで読むので、リージョンは引数にすぎない。
 
 📌 副次的に、**リポジトリにアカウントIDが残らない**（渡すのは*パラメータ名*だけ）。
 
-## 11. デプロイ（CI/CD）
+## 11. デプロイ
 
-**Agent・Backend はそれぞれ別リポジトリで、`main` にpushすると各自の CodeBuild がデプロイする**
-（テンプレートは [TouringProject_CICD](https://github.com/h-akira/TouringProject_CICD)）。
-
-```mermaid
-flowchart LR
-    pa["push<br/>Agent"] --> agent["Agent<br/>us-east-1"]
-    agent --> ssm[("SSM<br/>⚠️ 東京に書く")]
-    agent -. "ARNが変わったときだけ" .-> backend
-    pb["push<br/>Backend"] --> test["テスト"] --> backend["Backend<br/>東京"]
-    ssm -. "デプロイ時に解決" .-> backend
-```
+**Agent → Backend の順にデプロイする**（上記のARNの受け渡しのため）。
+手順は [Agent](https://github.com/h-akira/TouringProject_Agent)・[Backend](https://github.com/h-akira/TouringProject_Backend) の各 README。
 
 - ⚠️ **Backend は ARN をデプロイ時に焼き込む**（Lambda の環境変数と IAM ポリシー）。
-  **だから ARN が変わったら（初回・ランタイム名の変更）、Agent のビルドが Backend のビルドを起動する。**
-- **テストが落ちたらデプロイしない**（Backend の `pre_build` で `pytest`）。
+  **ARN が変わったら（初回・ランタイム名の変更）、Backend も再デプロイする。**
+  しないと**古いランタイムを呼び続ける**（デプロイは成功し、質問したときに初めて失敗する）。
 - **App は対象外。** Play で配布するのでAWSにデプロイするものが無い。
-- ⚠️ **親リポジトリの submodule ポインタの更新ではデプロイされない。**
 
 ## 12. 未決事項
 

@@ -1,8 +1,8 @@
 # 011. Agent・Backend・App・CICD を別リポジトリに分け、親から submodule で束ねる
 
 - **日付**: 2026-09-25
-- **ステータス**: 採用
-- **現在の設計**: [docs/01](../docs/01_architecture.md) §10・§11 / [CICD/README.md](https://github.com/h-akira/TouringProject_CICD/blob/main/README.md)
+- **ステータス**: 採用（一部改訂）
+- **現在の設計**: [docs/01](../docs/01_architecture.md) §10・§11
 
 ## 背景
 
@@ -66,3 +66,10 @@ App の CI（GitHub Actions）を足すと、**どの変更で何が動くか**�
 - ⚠️ **App は型生成で親の `docs/02_api_openapi.yaml` を読む**（`npm run gen:api`）。
   **親の作業ツリーでは動くが、App を単体でクローンすると生成できない。**
 - **タグ（`v<version>`）は App リポジトリに打つ。** 分離前のタグは親に残る。
+
+## 改訂（2026-09-26）: CICD リポジトリは非公開にした
+
+**「4リポジトリとも public」を改め、CICD だけ private にした。** 他の決定はそのまま生きている。
+
+- **理由**: Bedrock を呼ぶ構成なので、**不正利用されたときの被害が大きい。** 公開しても得るものが無いので、後悔しない側を選んだ。
+- **公開側（README・docs・サブの README）では、CICD の中身を説明しない。** submodule としての存在は `.gitmodules` から分かるが、それ以上は書かない。

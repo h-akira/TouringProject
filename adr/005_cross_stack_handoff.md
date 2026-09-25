@@ -2,7 +2,7 @@
 
 - **日付**: 2026-08-15
 - **ステータス**: 採用（一部改訂）
-- **現在の設計**: [CICD/README.md](https://github.com/h-akira/TouringProject_CICD/blob/main/README.md) / [docs/01](../docs/01_architecture.md) §10・§11
+- **現在の設計**: [docs/01](../docs/01_architecture.md) §10・§11
 
 ## 背景
 

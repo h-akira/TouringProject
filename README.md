@@ -15,7 +15,7 @@
 
 ## 構成
 
-⚠️ **`App/` `Backend/` `Agent/` `CICD/` は submodule**（それぞれ別リポジトリ・[adr/011](adr/011_repository_split.md)）。
+⚠️ **`App/` `Backend/` `Agent/` は submodule**（それぞれ別リポジトリ・[adr/011](adr/011_repository_split.md)）。
 **設計と記録（`docs/` `adr/` `pre-research/` `learning/`）はこの親リポジトリにある。**
 
 | ディレクトリ | 中身 |
@@ -23,7 +23,6 @@
 | [`App/`](https://github.com/h-akira/TouringProject_App) | React Native (Expo) アプリ本体 |
 | [`Backend/`](https://github.com/h-akira/TouringProject_Backend) | AWSバックエンド（SAM, Python）。API Gateway + Lambda + SQS + DynamoDB |
 | [`Agent/`](https://github.com/h-akira/TouringProject_Agent) | AgentCoreのエージェント本体（Strands）。会話の継続とWeb検索を担う |
-| [`CICD/`](https://github.com/h-akira/TouringProject_CICD) | 自動デプロイ（CodeBuild）を立てるテンプレート。手順は各リポジトリの `buildspec.yml` |
 | [`docs/`](docs/) | **現在の設計。** 要件定義・アーキテクチャ・API仕様 |
 | [`adr/`](adr/) | **決定の記録。** なぜそう決めたか、何を却下したか |
 | [`pre-research/`](pre-research/) | **技術検証。** 実測値と検証スクリプト |
@@ -32,12 +31,12 @@
 ## 取得する
 
 ```sh
-git clone --recursive git@github.com:h-akira/TouringProject.git
-# クローン済みで submodule が空なら
-git submodule update --init
+git clone https://github.com/h-akira/TouringProject.git
+cd TouringProject
+git submodule update --init App Backend Agent
 ```
 
-⚠️ **`--recursive` を付けないと `App/` などが空のディレクトリになる。**
+⚠️ **submodule を取得しないと `App/` などが空のディレクトリになる。**
 
 ## 動かす
 
@@ -61,11 +60,6 @@ npx expo start          # 2回目以降はこれだけで実機のアプリか�
 |---|---|
 | アプリを動かす | [App/README.md](https://github.com/h-akira/TouringProject_App/blob/main/README.md) |
 | バックエンドをデプロイ / APIキーを取り出す | [Backend/README.md](https://github.com/h-akira/TouringProject_Backend/blob/main/README.md) |
-| 自動デプロイ（push → CodeBuild） | [CICD/README.md](https://github.com/h-akira/TouringProject_CICD/blob/main/README.md) |
-
-> 📌 **通常はデプロイを手で叩かなくてよい。** **Agent・Backend の各リポジトリの `main` にpushすると、
-> そのリポジトリの CodeBuild が自動デプロイする。**
-> ⚠️ **この親リポジトリで submodule のポインタを更新しても、デプロイはされない。**
 
 ### ドキュメントの使い分け
 
@@ -96,7 +90,6 @@ flowchart LR
 | AI | Amazon Bedrock AgentCore（会話継続・Web検索） |
 | STT / TTS | Amazon Transcribe / Polly |
 | 対象OS | Android |
-| CI/CD | AWS CodeBuild（Agent・Backend のリポジトリごとに、pushで自動デプロイ） |
 
 詳細と選定理由は [docs/01_architecture.md](docs/01_architecture.md)、
 検討の経緯は [pre-research/02_tech_selection.md](pre-research/02_tech_selection.md)。
