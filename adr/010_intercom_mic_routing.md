@@ -145,8 +145,16 @@ Bluetooth スタック自身に SCO を張らせる。**
 - ⚠️ **2回目の押下は AT+BVRA=0 として届き、アプリへの Intent は無い。**
   **SCO が切れたこと**を通知と 0.2秒ごとの確認の両方で見る。
 - 権限は `BLUETOOTH_CONNECT` だけ（特権APIではない）。
+- ⚠️ **前提**: 検証は **Pixel 8a（Android 16 相当・SDK 36）と 1 台のインカム**だけ。
+  AOSP には **SCO を AudioService が管理する構成**（`Utils.isScoManagedByAudioEnabled()`）の分岐があり、
+  そこでは `startVoiceRecognition` 自体が Bluetooth 側から `setCommunicationDevice` を呼ぶので、
+  **「併用しないから張り直されない」前提が崩れうる。** 端末を変えたら記録で確かめ直すこと。
+- ⚠️ **押下から約5秒以内に返事をする必要がある**（`HeadsetService.sStartVrTimeoutMs`）。
+  アプリが起動していない状態からの押下で間に合うかは**未確認**（App v1.40.0 で押下からの経過を記録に残す）。
 
-### 裏づけ（実機・App v1.38.0）
+### 裏づけ（実機・検証用ビルド v1.38.0 と App v1.39.0）
+
+📌 v1.38.0 は未コミットの検証用ビルドで、変更はすべて **v1.39.0 に含まれる**。
 
 ✅ **起動直後（インカムの電源を入れ直した直後）でも 217〜237ms で確立**
 ✅ **録音デバイスは `bluetooth_sco`**（`AudioManager.getActiveRecordingConfigurations()` で確認）

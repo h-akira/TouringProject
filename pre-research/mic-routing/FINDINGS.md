@@ -182,11 +182,12 @@ setCommunicationRouteForClient for uid: ... (com.google.android.apps.recorder)
 - ⚠️ **2回目の押下はインカムから端末に届いていない**（HFPのログが無い）。
   **SCOを確立途中で切ったことでインカムの状態が崩れた疑い**（未確定）。インカムの電源を入れ直すと1回目は起動する。
 
-📌 **対処は App v1.37.0**（押した時刻での重複判定・開始処理中の印）。**2回目の押下が届くようになるかは再測定で確かめる。**
+⚠️ **二重処理だけを塞いだ検証用ビルド（v1.37.0・未コミット）でも、症状は変わらなかった**（→ §10）。
+対処は [docs/01c](../../docs/01c_app_client.md) §2（App v1.39.0 に含まれる）。
 
 ## 10. ⚠️ 仮想通話の最中は、インカムのボタンが「電話を切る」になる（2026-09-26）
 
-**切り分けの実験**（v1.37.0・コード変更なし）: **画面のボタンで録音 → 画面で終了 → インカムのボタンで起動 → もう一度押す。**
+**切り分けの実験**（上の検証用ビルド v1.37.0 のまま・コード変更なし）: **画面のボタンで録音 → 画面で終了 → インカムのボタンで起動 → もう一度押す。**
 
 ```
 23:59:57.902  startScoUsingVirtualVoiceCall      ← 画面から録音（返事待ちなし）
@@ -206,6 +207,14 @@ setCommunicationRouteForClient for uid: ... (com.google.android.apps.recorder)
   さらに**アプリの経路の要求が残っているため、AudioService が仮想通話で張り直す。**
   → ⚠️ **仮想通話で録音している限り、2回目の押下はアプリに届かない**（方式として両立しない）。
 
-📌 **対処は App v1.38.0**: `BluetoothHeadset.startVoiceRecognition()` でボタンの要求に正式に返事をし、
-**音声認識として張る**（⚠️ `setCommunicationDevice()` は呼ばない — 呼ぶと、外部が切ったあと AudioService が仮想通話で張り直す。
-`BtHelper.requestScoState`）。**2回目の押下は「SCO が切れた」ことで検知する。** ✅ **v1.38.0 で成立**（起動直後でも 217〜237ms で確立・録音デバイスは `bluetooth_sco`・2回目の押下で送信。[adr/010](../../adr/010_intercom_mic_routing.md) 改訂）。
+### 音声認識として張った場合の実測（検証用ビルド v1.38.0・未コミット。変更は App v1.39.0 に含まれる）
+
+`BluetoothHeadset.startVoiceRecognition()` でボタンの要求に返事をし、`setCommunicationDevice()` は呼ばない形で測った:
+
+- ✅ **起動直後（インカムの電源を入れ直した直後）でも 217〜237ms で確立**（v1.39.0 では 274ms）
+- ✅ **録音デバイスは `bluetooth_sco`**（`AudioManager.getActiveRecordingConfigurations()`）
+- ✅ **2回目の押下で SCO が切れ（AT+BVRA=0）、アプリへの Intent は来なかった**（2往復とも）
+- ⚠️ **HFP の状態通知は `RECEIVER_NOT_EXPORTED` では1回も届かなかった**（送り主が Bluetooth アプリで別の uid）。
+  `RECEIVER_EXPORTED` では届いた（v1.39.0）
+
+判断は [adr/010](../../adr/010_intercom_mic_routing.md) の改訂。
