@@ -184,7 +184,8 @@ Haiku は約1秒速いものの、**知識を要する質問に答えず「地�
 **音声読み上げ（Polly）では記号がそのまま読まれて不自然**になる。
 
 **対処**: システムプロンプトで明示的に禁止する。
-→ `Backend/src/lib/bedrock.py` の `_SYSTEM_PROMPT` に記載。
+→ `Backend/src/lib/bedrock.py` の `_SYSTEM_PROMPT` に記載（検証当時。現在は
+`Agent/app/agentcore_trg_dev_ask/main.py` の `SYSTEM_PROMPT`）。
 
 ### システムプロンプト適用後の実測（改善確認）
 

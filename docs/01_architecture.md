@@ -58,7 +58,7 @@ flowchart LR
 |---|---|---|
 | ハンズフリー起動 | アプリ | `ACTION_VOICE_COMMAND` の intent-filter（[01c](01c_app_client.md)）。⚠️ **既定アシスタントである必要は無い** |
 | 位置の取得（履歴を保持） | アプリ | expo-location |
-| 録音 | アプリ | `expo-audio`（終了はインカムのボタン再押しと上限。[adr/008](../adr/008_end_of_speech_detection.md)） |
+| 録音 | アプリ | `expo-audio`（終了はインカムのボタン再押しと上限。[adr/008](../adr/008_end_of_speech_detection.md)）。マイクはインカム（経路は自前モジュール。[01c](01c_app_client.md) §3a） |
 | 音声 → テキスト（STT） | **AWS** | Lambda → Amazon Transcribe（§7） |
 | 入力の検証・流量制限 | **AWS** | API Gateway + Lambda |
 | 座標 → 住所、進行方位の算出 | **AWS** | Lambda（§4） |

@@ -155,3 +155,57 @@ setCommunicationRouteForClient for uid: ... (com.google.android.apps.recorder)
 | 2 | ⚠️ **`voice_communication` を捨ててよいか** | **端末側のノイズ除去が無くなる。** ⚠️ **インカムの CVC だけで足りるか**を走行で測る |
 | 3 | ⚠️ **エコーが出ないか** | `voice_communication` は**エコーキャンセル**も担う |
 | 4 | **A2DP 再生中でも同じ速さで張れるか** | ⚠️ **270〜500msは音楽が鳴っていない状態の値** |
+
+## 9. ⚠️ インカムのボタンで起動するとSCOが張れない（v1.36.0・2026-09-25）
+
+**走行で発覚し、自宅で再現した**（走行は不要）。症状: **黄色の警告（本体マイクに落ちた）・
+2回目の押下で止まらない（20秒の上限で送信）・以後ボタンで起動できない。**
+
+**logcat（1回の押下）:**
+
+```
+22:31:27.637  HeadsetService: startVoiceRecognitionByHeadset        ← 押下は1回
+22:31:28.638  [handsfree] VOICE_COMMAND received: url=...autoRecord=<今回の時刻>
+22:31:28.836  [handsfree] VOICE_COMMAND received: url=...autoRecord=<約16分前の時刻>  ← ⚠️ 古いURL
+22:31:28.846  HeadsetService: startScoUsingVirtualVoiceCall          ← 1本目がSCOを張り始める
+22:31:29.117  setSpeakerphoneOn(true)（2本目の setAudioModeAsync）
+22:31:29.118  HeadsetService: stopScoUsingVirtualVoiceCall           ← ⚠️ 12ms後に潰される
+22:31:29.418  [mic] 経路の確保で例外: すでに確立処理中                 ← 2本目
+22:31:30.933  [mic] SCOを張れなかった: 確立待ちがタイムアウト           ← 1本目
+22:31:49.7 / 51.1  [recording] max reached -> send                  ← ⚠️ 上限タイマーも2本
+```
+
+- ⚠️ **原因は `useURL()`（expo-linking）**: `url` イベントの後に **`getInitialURL()` が
+  アプリを最初に起動したときのURLを返し**、URL文字列の比較では「新しい押下」に見えた。
+- ⚠️ **v1.36.0 で顕在化**: 二重起動を弾く印は録音開始後に立つので、**SCOの確立待ち（最大2秒）の間に
+  2本目がすり抜ける。**
+- ⚠️ **2回目の押下はインカムから端末に届いていない**（HFPのログが無い）。
+  **SCOを確立途中で切ったことでインカムの状態が崩れた疑い**（未確定）。インカムの電源を入れ直すと1回目は起動する。
+
+📌 **対処は App v1.37.0**（押した時刻での重複判定・開始処理中の印）。**2回目の押下が届くようになるかは再測定で確かめる。**
+
+## 10. ⚠️ 仮想通話の最中は、インカムのボタンが「電話を切る」になる（2026-09-26）
+
+**切り分けの実験**（v1.37.0・コード変更なし）: **画面のボタンで録音 → 画面で終了 → インカムのボタンで起動 → もう一度押す。**
+
+```
+23:59:57.902  startScoUsingVirtualVoiceCall      ← 画面から録音（返事待ちなし）
+23:59:58.146  codec_nego: Succeeded              ← 244ms で交渉が済み、920ms で確立
+00:00:10.143  stopScoUsingVirtualVoiceCall       ← 画面から終了
+00:00:47.428  startVoiceRecognitionByHeadset     ← ✅ インカムのボタンは「起動して」として届いた
+00:00:47.740  Skip codec negotiation, using the same codec   ← ⚠️ 交渉が省略され、955ms で確立
+00:00:56.820  stopScoUsingVirtualVoiceCall: uid/pid=<Bluetoothのプロセス>   ← ⚠️ 2回目の押下
+00:00:56.906  startScoUsingVirtualVoiceCall      ← AudioService が張り直す（アプリの要求が残っている）
+00:01:08.679  [recording] max reached -> send
+```
+
+- ✅ **仮想通話そのものはインカムを壊さない**（終えたあとのボタンは「起動して」として届いた）。
+- ⚠️ **返事待ちの最中でも、codec の交渉が要らなければ張れる。** 失敗していたのは**電源の入れ直し直後（交渉が要る回）**だけ。
+- ⚠️ **仮想通話の最中は、インカムのボタンは正しく「電話を切る」（AT+CHUP）として働く。**
+  AOSP の `HeadsetSystemInterface.hangupCall()` は、仮想通話中なら**それを終わらせるだけでアプリに何も知らせない**。
+  さらに**アプリの経路の要求が残っているため、AudioService が仮想通話で張り直す。**
+  → ⚠️ **仮想通話で録音している限り、2回目の押下はアプリに届かない**（方式として両立しない）。
+
+📌 **対処は App v1.38.0**: `BluetoothHeadset.startVoiceRecognition()` でボタンの要求に正式に返事をし、
+**音声認識として張る**（⚠️ `setCommunicationDevice()` は呼ばない — 呼ぶと、外部が切ったあと AudioService が仮想通話で張り直す。
+`BtHelper.requestScoState`）。**2回目の押下は「SCO が切れた」ことで検知する。** ✅ **v1.38.0 で成立**（起動直後でも 217〜237ms で確立・録音デバイスは `bluetooth_sco`・2回目の押下で送信。[adr/010](../../adr/010_intercom_mic_routing.md) 改訂）。
