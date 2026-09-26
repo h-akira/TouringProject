@@ -55,8 +55,7 @@ docs/01 §7 では **API Gateway の Usage Plan** で「レート上限・1日�
 ### ただし現時点では重大ではない
 
 - **当面のユーザーは開発者本人のみ**（[00_user_stories.md](../../docs/00_user_stories.md) §5「複数ユーザー対応はやらない」）
-- 悪用対策の**本命は [../account-cost-guard/](../account-cost-guard/) のキルスイッチ**（SCPでBedrockを完全停止）
-- Usage Plan は「日常的な使いすぎ」を防ぐ層であって、最終防衛線ではない
+- Usage Plan は API Gateway の手前で「日常的な使いすぎ」を防ぐので、AgentCore 側に同じ制御が無くても当面は足りる
 
 → **複数ユーザーへの配布が現実になったときに、改めて判断すればよい（[00_user_stories.md](../../docs/00_user_stories.md) §5）。**
 

@@ -33,15 +33,6 @@ agentcore --version
 ./../bedrock/check_models.sh      # OK が出ることを確認
 ```
 
-### 1.2 SCP がBedrockを拒否していないこと
-
-コストガード（[../account-cost-guard/](../account-cost-guard/)）のキルスイッチが作動していると、
-`AccessDeniedException ... explicit deny in a service control policy` になる。
-
-```sh
-./../account-cost-guard/check_guard.sh   # キルスイッチが作動中でないか確認
-```
-
 ## 2. CDK bootstrap（qualifier 分離）
 
 **デフォルトの `cdk bootstrap` は使わない。** qualifier が `hnb659fds` 固定になり、
@@ -225,7 +216,6 @@ aws cloudformation delete-stack --region ap-northeast-1 \
 
 | 症状 | 原因 | 対処 |
 |---|---|---|
-| `AccessDeniedException ... explicit deny in a service control policy` | コストガードのSCPが作動 | [../account-cost-guard/](../account-cost-guard/) でデタッチ |
 | `ResourceNotFoundException: use case details have not been submitted` | Anthropicユースケース未申請 | [../bedrock/](../bedrock/) §1 |
 | `UnrecognizedClientException` | 認証情報が子プロセスに渡っていない | `eval "$(aws configure export-credentials ...)"` |
 | `The resources [StagingBucket] already exist` | デフォルトbootstrapの残骸 | §2.1 でバケットまで削除 |

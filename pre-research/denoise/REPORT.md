@@ -3,11 +3,10 @@
 > 調査: 2026-09-13〜14 / 端末: **Pixel 8a** / インカム: **FODSPORTS M1-S Pro**
 > ⚠️ **調査のみ。実装はしていない。**
 
-> ⚠️ **続きがある: [pre-research/mic-routing/](../mic-routing/)**（2026-09-22）。
-> **本アプリは Pixel 本体マイクで録っていた可能性が高い**と分かった。
-> ⚠️ **§3.3 の「Bluetoothマイクから音が入っている」は
-> Googleレコーダーでの観察が根拠**であり、**本アプリについては未検証だった。**
-> 📌 **以下はその判明前の記録**（§1 の後処理全滅・§2 のレコーダー実例は**今も有効**）。
+> ⚠️ **この調査の時点で、本アプリは Pixel 本体のマイクで録っていた**（[mic-routing/](../mic-routing/)）。
+> いまはインカムのマイクで録っている（App の [adr/005](https://github.com/h-akira/TouringProject_App/blob/main/adr/005_intercom_mic_routing.md)）。
+> ⚠️ **インカムのマイクでの走行試験はまだ**なので、本調査の結論（§1 の後処理は全滅・§2 の同じマイクで綺麗に録れる実例）は参考として残す。
+> §3.3 の「Bluetoothマイクから音が入っている」はGoogleレコーダーでの観察が根拠で、本アプリについてのものではない。
 
 ## この調査で分かったこと（要点）
 
@@ -16,8 +15,6 @@
 | **1** | ⚠️ **ノイズ除去は後処理では無理だった**（63パターン試して全滅） | ✅ **実測** |
 | **2** | ✅ **同じBluetoothマイクで綺麗に録れる実例がある**（Googleレコーダー）。⚠️ **しかも後処理のノイズ除去なしで** | ✅ **実測＋一次情報** |
 | **3** | ⚠️ **インカムのノイズ除去（CVC/ENC）は「通話」向けの機能** | ⚠️ **状況証拠** |
-| **4** | ⚠️ **アプリに `BLUETOOTH_CONNECT` 権限が無い** | ✅ **コードで確認** |
-| **5** | ⚠️ **アプリは録音デバイスを一切指定していない**（`setInput` 未使用） | ✅ **コードで確認** |
 
 ---
 
@@ -91,7 +88,7 @@
 | **`audioSource`** | `voice_communication` | ⚠️ **不明** |
 | **サンプリングレート** | **16000 Hz** に固定 | ⚠️ **不明**（48kHz の可能性） |
 | **ビットレート** | 64kbps・AAC | ⚠️ **不明** |
-| **⚠️ 通信モードの設定** | ⚠️ **何も設定していない**（§4.2） | ⚠️ **不明** |
+| **⚠️ 通信モードの設定** | ⚠️ **何も設定していない** | ⚠️ **不明** |
 | **エンコード** | AAC（非可逆・低ビットレート） | ⚠️ **不明**（可逆の可能性） |
 
 > ⚠️ **`sampleRate: 16000` と `bitRate: 64000` は本アプリが明示的に下げた設定**
@@ -129,48 +126,7 @@
 
 ---
 
-## 4. ⚠️ アプリ側で見つかった不備（2点）
-
-**⚠️ これらが原因と断定はできないが、事実として存在する。**
-
-### 4.1 `BLUETOOTH_CONNECT` 権限が無い
-
-**`App/android/app/src/main/AndroidManifest.xml` にある音声系の権限:**
-
-```
-MODIFY_AUDIO_SETTINGS / RECORD_AUDIO
-```
-
-⚠️ **`BLUETOOTH_CONNECT` が無い**（Android 12+ / API 31 以降のランタイム権限）。
-
-📌 **公式の仕様**（[AudioManager.setCommunicationDevice](https://developer.android.com/reference/android/media/AudioManager#setCommunicationDevice(android.media.AudioDeviceInfo))）は
-**この権限の要否を明記していない**が、⚠️ **Bluetooth デバイスの列挙・接続には
-`BLUETOOTH_CONNECT` が要る**（[Bluetooth permissions](https://developer.android.com/develop/connectivity/bluetooth/bt-permissions)）。
-
-⚠️ **録音デバイスを制御しようとするなら必ず要る。**
-
-> ✅ **後日、実際に不足していることが確認された**（2026-09-22）。
-> **`App/app.json` に宣言が無く、追加した**（[adr/010](../../adr/010_intercom_mic_routing.md)）。
-> ⚠️ **宣言だけでは足りず、実行時に `PermissionsAndroid.request()` も要る。**
-
-### 4.2 録音デバイスを指定していない
-
-**`expo-audio` には入力デバイスを選ぶAPIがある**（`getAvailableInputs` / `setInput` /
-`getCurrentInput`）が、⚠️ **アプリはどれも呼んでいない**（`App/src/` を全検索して0件）。
-
-📌 **`setInput()` は Bluetooth SCO デバイスを指定すると
-`setCommunicationDevice()`（Android 12+）を呼ぶ実装になっている**
-（`AudioRecorder.kt:378-400`）。
-
-⚠️ **つまり「どのマイクで録っているか」を、アプリは指定も確認もしていない。**
-
-> ⚠️ **ユーザーの実測により、実際にはBluetoothマイクで録れている。**
-> **ここで指摘しているのは「制御していない」という事実**であって、
-> **本体マイクにフォールバックしているという主張ではない。**
-
----
-
-## 5. ⚠️ まだ調べられていないこと
+## 4. ⚠️ まだ調べられていないこと
 
 | # | 調べること | なぜ要るか |
 |---|---|---|
@@ -182,7 +138,7 @@ MODIFY_AUDIO_SETTINGS / RECORD_AUDIO
 
 ---
 
-## 6. ⚠️ 次にやるべき検証（実装ではなく確認）
+## 5. ⚠️ 次にやるべき検証（実装ではなく確認）
 
 **⚠️ どれも「アプリを直す」前の、事実を確定させるための作業。**
 
@@ -230,7 +186,7 @@ MODIFY_AUDIO_SETTINGS / RECORD_AUDIO
 
 ---
 
-## 7. 📌 この調査で確定した方針の変更
+## 6. 📌 この調査で確定した方針の変更
 
 | 前 | 後 |
 |---|---|
