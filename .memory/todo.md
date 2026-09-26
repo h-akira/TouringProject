@@ -24,13 +24,7 @@
 - **ボタンだけで一巡するか**（起動・2回目で送信・次の起動）。📌 **走行後に `btroute-trace.log` を取り出す**（`App/SETUP.md`）
 - ⚠️ **見つかった課題は書き出す**（前回 2026-09-13 分も未記録。📌 **外でのAPIブロック**＝403/429の疑いを含む）
 
-### 2. ⚠️ Playへの配信を自動化する ← **優先**
-
-✅ **方針は決まり（[adr/009](../adr/009_play_internal_testing_release.md) 改訂）、準備（Google Cloud・Play Console・Environment `play` と Secrets）も完了。**
-✅ **API の確認済み**（2026-09-26）・✅ **本番のワークフロー `App/.github/workflows/play-release.yml` を作成**（App **v1.42.0**。手元で同じ検査が通ることを確認）。
-⚠️ **残り**: **`v1.42.0` のタグの push で実際に内部テストへ配信されるか確かめる**（CI での初回ビルド。JDK・NDK の差で落ちうる）
-
-### 3. Playストアで配れるようにする（残り）
+### 2. Playストアで配れるようにする（残り）
 
 🎉 **「ビルド→署名→Play→実機」の経路は通った**（2026-09-13・[adr/009](../adr/009_play_internal_testing_release.md)）。⚠️ **残り**:
 
@@ -61,6 +55,7 @@
 | 完了日 | やったこと |
 |---|---|
 | 2026-09-26 | 🎉 **インカムのボタンだけの一巡が、インカムのマイクで成立**（App **v1.39.0**・室内試験で確認）。⚠️ **v1.36.0 で壊れていた**（起動直後に経路が張れない・2回目の押下で止まらない・以後起動できない）。**原因は経路を「仮想通話」で張っていたこと** — インカムは返事待ちの間 codec 交渉に応じず、⚠️ **通話中のボタンは「電話を切る」になる**。✅ **「音声認識」として張り直し、2回目の押下は経路の切断で検知**（[adr/010](../adr/010_intercom_mic_routing.md)・[adr/008](../adr/008_end_of_speech_detection.md) 改訂、`pre-research/mic-routing/` §9・§10）。副産物: **ボタン押下の二重処理を修正**（`useURL()` が古いURLを返す）・**経路と録音の記録を端末内ファイルに残すように**。あわせて **エージェントに現在日時を渡すように**（Backend `prompt.py`。未来の日付と取り違える問題） |
+| 2026-09-26 | 🎉 **Playへの配信を自動化**（App **v1.42.0**・[adr/009](../adr/009_play_internal_testing_release.md) 改訂）。**`v*` タグの push で GitHub Actions がビルド・署名・検査して、r0adkll で内部テストへ上げる**（`App/.github/workflows/play-release.yml`）。初回は約23分で成功。⚠️ **独立レビューで「API の URL（`EXPO_PUBLIC_API_BASE_URL`）が CI のビルドに入らない」重大な見落としが見つかり、push 前に修正**（Secret に追加・無ければ止める・バンドルを検査）。⚠️ **pipefail にすると `keytool` の終了コードと `grep -q` の早期終了で検査が誤って落ちる**ことも手元で見つけて修正。部品の出どころは `pre-research/play-cicd/SETUP.md` §7 |
 | 2026-09-26 | **App が単体で型を生成できるように**（App **v1.41.0**・[adr/011](../adr/011_repository_split.md) 改訂）。API契約の写し `App/src/api/openapi.yaml` を追跡し、`gen:api` をそこから読むよう変更。写しの更新は親の `scripts/sync-openapi.sh`（手動） |
 | 2026-09-25 | **Agent・Backend・App・CICD を submodule に分離**（[adr/011](../adr/011_repository_split.md)）。リポジトリ作成・push・CICDスタックの入れ替えまで完了 |
 | 2026-09-22 | **インカムのマイクで録れるように**（App **v1.36.0**・[adr/010](../adr/010_intercom_mic_routing.md)）。⚠️ **それまで本体マイクで録っていた**（`expo-audio` の `setInput()` が仕様違反で黙って失敗）。経路だけ自前モジュール `bt-audio-route` で張る |

@@ -225,9 +225,43 @@ gh run watch --repo h-akira/TouringProject_App
 
 📌 **中身は「下書き（edit）を作って一覧を読み、コミットせずに消す」だけ**なので、Play には何も反映されない。
 
+## 7. ワークフローの部品と出どころ
+
+📌 **本番のワークフローは App の `.github/workflows/play-release.yml`。**
+⚠️ **GitHub 以外が作った部品は r0adkll の1つだけ**（採用の判断は [COMPARISON.md](COMPARISON.md) §2）。
+
+| 部品 | 作っているところ | 公式ドキュメントでの扱い |
+|---|---|---|
+| `actions/checkout` | ✅ **GitHub**（`github.com/actions` は GitHub 自身の organization） | 公式チュートリアルが最初の段として使う（リポジトリのコードをランナーに取り出す） |
+| `actions/setup-java` | ✅ **GitHub** | 公式チュートリアル（Java with Gradle）が JDK の用意に使う |
+| `actions/setup-node` | ✅ **GitHub** | 公式チュートリアル（Node.js）が Node の用意に使う |
+| `r0adkll/upload-google-play` | ⚠️ **個人（コミュニティ）** | GitHub の公式ではない。**Google 公式の Action は存在しない** |
+| `npm ci`・`npm run bundle:aab`・`keytool`・`unzip` | App のスクリプトと標準のコマンド | — |
+
+📌 **骨格は公式チュートリアルと同じ**（コードを取り出す → 実行環境を用意 → 依存を入れる → ビルド）。
+そこに**鍵の復元・検査・アップロード**を足している。
+
+### ⚠️ 公式の例と違うところ（意図的）
+
+| | 公式チュートリアル | `play-release.yml` | 理由 |
+|---|---|---|---|
+| **版の書き方** | `@v6` などのタグ | ⚠️ **コミットSHA**（行末に `# v7.0.1` と注記） | 公式の Secure use が「最も安全」とする書き方。**タグは付け替えられる**が、SHA は中身から計算されるので変えられない。**鍵を扱うので安全な方を選んだ** |
+
+⚠️ **SHA で固定した Action には Dependabot の脆弱性アラートが出ない**（公式に明記）。
+**版は自分で定期的に上げる。** 対応の確かめ方:
+
+```sh
+gh api repos/actions/checkout/commits/v7.0.1 --jq .sha   # ワークフローの SHA と一致すればよい
+```
+
+📌 **ハッシュは「その Action のリポジトリのコミット」**（このプロジェクトのコミットではない）。
+例: `https://github.com/actions/checkout/commit/<SHA>` で中身を見られる。
+
 ## 参考
 
 - [Google Play Developer API - Getting Started](https://developers.google.com/android-publisher/getting_started)（プロジェクトのリンクが不要になった旨・招待の手順）
 - [Play Console ヘルプ - デベロッパー アカウントのユーザーの追加と権限の管理](https://support.google.com/googleplay/android-developer/answer/9844686)（権限の名前と範囲）
 - [Google Cloud - サービス アカウント キーの作成と削除](https://docs.cloud.google.com/iam/docs/keys-create-delete)（キーの作成手順・組織ポリシー）
 - [GitHub Actions - Using secrets](https://docs.github.com/en/actions/security-guides/using-secrets-in-github-actions)
+- [GitHub Actions - Secure use reference](https://docs.github.com/en/actions/reference/security/secure-use)（SHA での固定・`GITHUB_TOKEN` の最小権限）
+- [GitHub Actions - Building and testing Java with Gradle](https://docs.github.com/en/actions/tutorials/build-and-test-code/java-with-gradle)・[Node.js](https://docs.github.com/en/actions/tutorials/build-and-test-code/nodejs)（公式の Action の使い方）
