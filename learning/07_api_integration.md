@@ -111,9 +111,9 @@ React Query を導入するほどではないので、**型だけを生成する
 ### 使い方
 
 ```sh
-# App/ で実行。docs/02 の仕様 → src/api/schema.ts を生成
+# App/ で実行。src/api/openapi.yaml（docs/02 の写し）→ src/api/schema.ts を生成
 npm run gen:api
-# 中身: openapi-typescript ../docs/02_api_openapi.yaml -o src/api/schema.ts
+# 中身: openapi-typescript src/api/openapi.yaml -o src/api/schema.ts
 ```
 
 - 生成された `src/api/schema.ts` は**自動生成物なので手で編集しない**。

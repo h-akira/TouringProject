@@ -19,8 +19,6 @@
 | 優先度 | 論点 | 何を決めるのか / 現状 | 詳細 |
 |---|---|---|---|
 | 高 | **インカム経由での録音条件をどうするか** | ✅ **経路は解決した**（[adr/010](../adr/010_intercom_mic_routing.md)。2026-09-26 に「音声認識」として張る方式へ改訂）。⚠️ **残るのは録音の「条件」**: **①`voice_communication`（端末側のノイズ除去）を捨ててよいか** — ⚠️ **インカムの CVC で足りるかを走行で測る**（📌 **エコーが出ないかも見る**）**②その後の録音条件と送信サイズ** | [pre-research/mic-routing/](../pre-research/mic-routing/) |
-| 高 | **App の型生成が親の `docs/02` に依存している** | ⚠️ **`App/package.json` の `gen:api` が `../docs/02_api_openapi.yaml` を読む**（postinstall）。**親の作業ツリーでは動くが、App を単体でクローンすると `npm install` が失敗する** → ⚠️ **Play配信のCI（GitHub Actions）が App 単体で動かない**。候補: ①CIで親も取得 ②`schema.ts` を追跡する ③契約を App 側に置く。📌 **Play配信の自動化と一緒に決める** | [adr/011](../adr/011_repository_split.md)「影響」 |
-| 高 | **Playへの配信をどう自動化するか** | ⚠️ **`adr/009` D の「当面は手動」を覆す**（⚠️ **走行テストで課題が出たとき、すぐ配れないと困ると判明**）。決めるのは**①アップロード手段**（fastlane / r0adkll / API直接）**②⚠️ 署名鍵をCIに置くか**（⚠️ **`adr/009` C の見直しを含む**）**③引き金**（タグ / 手動 / push全部）。⚠️ **②が本体** | [pre-research/play-cicd/](../pre-research/play-cicd/) |
 | 中 | **周辺検索をどうツール化するか** | 「あの山は？」に答える本命。取得できることは実証済み。**AIが自由度を持って検索できる形**にしたいが、ツールの粒度・呼び出し回数の抑え方が未定。**US-2.03の後** | `pre-research/geocoding/` §5 |
 | 低 | **現在地を個人情報としてどう扱うか** | ⚠️ **座標と解決後の住所の両方**がCloudWatchに残る（Lambda=東京、エージェント=us-east-1 の2箇所。📌 エージェントの `main.py` は**質問本文だけ**を出すようにした＝住所ブロックは出さない。**Lambda 側のログは未確認**）。ログ保存の方針を決める。メモ機能を作るなら必須 | `pre-research/geocoding/` §7 |
 
@@ -31,6 +29,8 @@
 
 | 決定日 | 論点 | 結論 | 詳細 |
 |---|---|---|---|
+| 2026-09-26 | **Playへの配信をどう自動化するか**（adr/009 C・D の改訂） | ✅ **GitHub Actions で `v*` タグの push を引き金に、CI でビルド・署名し、`r0adkll/upload-google-play`（SHA固定）で内部テストへ上げる。** ⚠️ **upload key の写しを Environment `play` の Secrets に置き、`v*` タグからの実行だけが読める。** 原本は `~/.keystore/` のまま。**却下**: 手元で署名（⚠️ **重いビルドが残る**）・fastlane・自作スクリプト・`main` への push を引き金（⚠️ **`versionCode` 重複で失敗が常態化**）。📌 **公開側に書かない決まりは Bedrock を呼ぶ AWS 側だけが対象で、App の配信は対象外** | [adr/009](../adr/009_play_internal_testing_release.md) 改訂 |
+| 2026-09-26 | **App の型生成が親の `docs/02` に依存している** | ✅ **正本は親の `docs/02` のまま、App は写し `src/api/openapi.yaml` を追跡して型を生成する。** 写しの更新は**手動**（親の `scripts/sync-openapi.sh`）。📌 **App を単体でクローンしても `npm install` が通る** → Play配信のCIで親を取得する必要が無い。**却下**: CIで親も取得・`schema.ts` の追跡・正本を App に移す | [adr/011](../adr/011_repository_split.md) 改訂 |
 | 2026-09-26 | **インカムの経路をどう張るか**（adr/010 の改訂） | ✅ **`BluetoothHeadset.startVoiceRecognition()` で「音声認識」として張る。** ⚠️ **仮想通話（`setCommunicationDevice()`）は使わない・併用もしない** — ボタン起動の直後に張れず、⚠️ **録音中のボタンが「電話を切る」になって2回目の押下が届かない。** ✅ **2回目の押下は経路の切断で検知する**（Intent は来ない）。**却下**: 確立待ちを5秒以上に延ばす・「電話を切る」を検知する（起動直後の問題が残る） | [adr/010](../adr/010_intercom_mic_routing.md) 改訂 |
 | 2026-09-26 | **エージェントに現在日時をどこまで渡すか** | **日付＋時刻（分まで・日本時間）を毎回渡す。** 時刻はログからも分かるので隠す意味が無い | `Backend/src/lib/prompt.py` `format_now`・`docs/01b` §5 |
 | 2026-09-25 | **リポジトリを分離するか** | ✅ **分離して submodule で束ねる**（`TouringProject_Agent/_Backend/_App/_CICD`・⚠️ **CICD だけ private**（2026-09-26）・履歴は引き継がない）。**成果物は親に残す。** ✅ **CodeBuild は2つ**（ブランチ分け・CodePipeline・承認なし）。⚠️ **ARN が変わったときだけ Agent のビルドが Backend のビルドを起動する**（Backend は ARN を焼き込むため）。**却下**: 1リポジトリのまま `paths` で振り分け（⚠️ **動くかがフィルタの正しさ頼みになる**）・subtree・完全分離 | [adr/011](../adr/011_repository_split.md) |

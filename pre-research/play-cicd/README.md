@@ -34,15 +34,15 @@
 | **署名・AAB・`versionCode`** | [learning/14](../../learning/14_android_app_signing_and_release.md) |
 | **そもそもなぜPlayの内部テストなのか** | [learning/13](../../learning/13_private_app_distribution.md)・[adr/009](../../adr/009_play_internal_testing_release.md) |
 
-## ⚠️ まだ決まっていない
+## 決まったこと
 
-**このディレクトリは検討中。** ⚠️ **決まったら [adr/009](../../adr/009_play_internal_testing_release.md) を改訂する。**
+✅ **①〜③とも決まった**（2026-09-26）。**判断は [adr/009](../../adr/009_play_internal_testing_release.md) の改訂節**に書いた。
 
 | 論点 | 状態 |
 |---|---|
-| **① どのツールで上げるか** | ⚠️ **未決**（[COMPARISON.md](COMPARISON.md)） |
-| **② ⚠️ 署名をどこでやるか**（鍵をCIに置くか） | ⚠️ **未決**（[COMPARISON.md](COMPARISON.md) §3）。⚠️ **`adr/009` C の見直しを含む** |
-| **③ 何を引き金にするか**（push / タグ / 手動） | ⚠️ **未決**（[COMPARISON.md](COMPARISON.md) §4） |
+| **① どのツールで上げるか** | ✅ **B. `r0adkll/upload-google-play`（SHA固定）**（2026-09-26。[COMPARISON.md](COMPARISON.md) §2） |
+| **② ⚠️ 署名をどこでやるか**（鍵をCIに置くか） | ✅ **CIで署名する**（鍵の写しを Environment secrets に置き、`v*` タグに限定。[SETUP.md](SETUP.md) §4） |
+| **③ 何を引き金にするか**（push / タグ / 手動） | ✅ **`v*` タグの push** |
 
 ## ファイル
 
@@ -61,7 +61,11 @@
 - ⚠️ **本番公開はしない。** **内部テストのトラックにだけ上げる。**
 - ⚠️ **`versionCode` は `app.json` の `version` から導出される**
   （`App/plugins/withVersionCode.js`）。**自動化してもここは変わらない。**
+- ✅ **App は単体でクローンしても型を生成できる**（API契約の写しを App 側で追跡。
+  [adr/011](../../adr/011_repository_split.md) 改訂）。**CIで親を取得する必要は無い。**
 
 ## 次の一手
 
-⚠️ **[COMPARISON.md](COMPARISON.md) を読んで ①〜③ を決める。** 決めてから実装する。
+1. ✅ **準備（[SETUP.md](SETUP.md) §1〜4）は完了**（2026-09-26）
+2. ⚠️ **読み取りだけのワークフローで、サービスアカウントが API を叩けるか確かめる**（[SETUP.md](SETUP.md) §6）
+3. **タグの push で ビルド→署名→アップロード するワークフローを書く**

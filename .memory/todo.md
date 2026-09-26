@@ -26,9 +26,9 @@
 
 ### 2. ⚠️ Playへの配信を自動化する ← **優先**
 
-⚠️ **走行テストで課題が出たとき、すぐ配れないと困る。**
-📌 **調査・比較は [pre-research/play-cicd/](../pre-research/play-cicd/)。** ⚠️ **①手段 ②署名鍵をCIに置くか ③引き金** を
-決めてから実装する（`issues.md`）。⚠️ **`adr/009` D（と場合により C）の改訂が要る。**
+✅ **方針は決まり（[adr/009](../adr/009_play_internal_testing_release.md) 改訂）、準備（Google Cloud・Play Console・Environment `play` と Secrets）も完了。**
+⚠️ **残り**: ① `play-api-check.yml` で API が通るか確かめる（[SETUP.md](../pre-research/play-cicd/SETUP.md) §6）
+② **タグの push で ビルド→署名→アップロード するワークフローを書く**（CI の JDK・SDK を手元と揃える）
 
 ### 3. Playストアで配れるようにする（残り）
 
@@ -61,6 +61,7 @@
 | 完了日 | やったこと |
 |---|---|
 | 2026-09-26 | 🎉 **インカムのボタンだけの一巡が、インカムのマイクで成立**（App **v1.39.0**・室内試験で確認）。⚠️ **v1.36.0 で壊れていた**（起動直後に経路が張れない・2回目の押下で止まらない・以後起動できない）。**原因は経路を「仮想通話」で張っていたこと** — インカムは返事待ちの間 codec 交渉に応じず、⚠️ **通話中のボタンは「電話を切る」になる**。✅ **「音声認識」として張り直し、2回目の押下は経路の切断で検知**（[adr/010](../adr/010_intercom_mic_routing.md)・[adr/008](../adr/008_end_of_speech_detection.md) 改訂、`pre-research/mic-routing/` §9・§10）。副産物: **ボタン押下の二重処理を修正**（`useURL()` が古いURLを返す）・**経路と録音の記録を端末内ファイルに残すように**。あわせて **エージェントに現在日時を渡すように**（Backend `prompt.py`。未来の日付と取り違える問題） |
+| 2026-09-26 | **App が単体で型を生成できるように**（App **v1.41.0**・[adr/011](../adr/011_repository_split.md) 改訂）。API契約の写し `App/src/api/openapi.yaml` を追跡し、`gen:api` をそこから読むよう変更。写しの更新は親の `scripts/sync-openapi.sh`（手動） |
 | 2026-09-25 | **Agent・Backend・App・CICD を submodule に分離**（[adr/011](../adr/011_repository_split.md)）。リポジトリ作成・push・CICDスタックの入れ替えまで完了 |
 | 2026-09-22 | **インカムのマイクで録れるように**（App **v1.36.0**・[adr/010](../adr/010_intercom_mic_routing.md)）。⚠️ **それまで本体マイクで録っていた**（`expo-audio` の `setInput()` が仕様違反で黙って失敗）。経路だけ自前モジュール `bt-audio-route` で張る |
 | 2026-09-13 | 🎉 **Playの内部テスト経由で実機にアプリを配れた**（App **v1.35.0**）。**署名鍵の作成→AAB→Play Console登録→アップロード→インストール→動作確認**まで一巡。⚠️ **詰まったのは「テスターに『アイテムが見つかりませんでした』」で、原因は初回リリースの反映待ち**（設定は全て正しかった。**数時間で入った**）。📌 **内部テストに「国/地域」の設定は無い**（全世界が対象）ので疑っても無駄。一般知識は [learning/14](../learning/14_android_app_signing_and_release.md)、画面の迷いどころは `App/SETUP.md` §6 |

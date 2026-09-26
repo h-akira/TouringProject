@@ -162,6 +162,8 @@ ADRは**その時点で何を知った上でどう判断したか**の記録な�
   📌 **CI/CD があること・何を使っているか（CodeBuild）・CICD へのリンクは書いてよい**
   （他の人にはリンク切れに見えるが許容する）。⚠️ **構成・権限・順序の仕組みは書かない。**
   📌 **`CLAUDE.md` と `.memory/` には必要な範囲で書いてよい。** ⚠️ **CICD の中身も公開前提で書く**（秘密を入れない規約はそのまま）。
+  📌 **対象は AI（Bedrock）を呼ぶ AWS 側（Agent・Backend）の CI/CD だけ。** 各リポジトリの `buildspec.yml` が公開されている程度は問題ない。
+  ✅ **App の Play 配信（GitHub Actions）は対象外**なので、ワークフローも ADR も普通に書いてよい。
 
 ## AWS / バックエンド開発
 
@@ -247,6 +249,9 @@ git grep -nI --recurse-submodules -e "$(whoami)" -e '/Users/[A-Za-z]' \
 
 - **`docs/02_api_openapi.yaml` が正本**（フロント↔バックの契約）。
   API Gatewayの `DefinitionBody` には未組込（契約・型生成・ドキュメント用途）。
+- ⚠️ **App は写し（`App/src/api/openapi.yaml`）から型を生成する**（App を単体でクローンしても動くように）。
+  ⚠️ **契約を変えたら `./scripts/sync-openapi.sh` で写しを更新し、App 側でもコミットする**
+  （手動。⚠️ **忘れると App は古い契約のまま**）。**写しは手で編集しない。**
 - ⚠️ **契約を変えたら型を再生成する**: `cd App && npm run gen:api`
   → `App/src/api/schema.ts`。エイリアスは `src/api/types.ts`。
 - ⚠️ **`schema.ts` は生成物なので追跡しない**（`.gitignore` 済み）。
