@@ -1,11 +1,21 @@
-# docs/ — 設計ドキュメント
+# docs/ — プロジェクト全体の設計と契約
 
-**このアプリの現在の設計。** 書き方のルールは [ルートのREADME](../README.md) を参照。
+> ⚠️ 各ユニット（App・Backend・Agent・CICD）の `docs-parent/` は、親リポジトリの `docs/` の写し。**写しを編集しない。**
+> 正本は親リポジトリ `TouringProject` の `docs/` で、更新は親の `docs/sync.sh` で行う。
 
-- [00. 要件定義（ユーザーストーリー）— **最上位**](./00_user_stories.md)
-- [01. 全体アーキテクチャ（責務分担とデータフロー）](./01_architecture.md)
-  - [01a. 回答を非同期で受け取る（29秒制約の回避）](./01a_async_ask.md)
-  - [01b. 進行方位（「右手に見える山は？」に答えるために）](./01b_heading.md)
-  - [01c. アプリ（クライアント）側の設計](./01c_app_client.md)
-- [02. API仕様（OpenAPI）— フロント↔バックの契約](./02_api_openapi.yaml)
-- [03. DynamoDBテーブル定義（シングルテーブル設計）](./03_dynamodb_table.md)
+| ファイル | 中身 |
+|---|---|
+| [00_user_stories.md](00_user_stories.md) | 要件定義（ユーザーストーリー）。最上位 |
+| [01_technical_policies.md](01_technical_policies.md) | 技術方針（レイヤーの方針・技術選定・リージョン） |
+| [02_units_definition.md](02_units_definition.md) | ユニットの定義（責務と担当する US） |
+| [03_units_contracts.md](03_units_contracts.md) | ユニット間の契約（UC-1〜UC-6） |
+| [04_api_openapi.yaml](04_api_openapi.yaml) | App ↔ Backend の API 仕様（OpenAPI） |
+
+ユニットの中の設計は各ユニットの `docs/` にある。
+
+## 変えたとき
+
+1. 親の `docs/` を直す。
+2. 親で `docs/sync.sh` を実行し、各ユニットの `docs-parent/` を更新する。
+3. 各ユニットで `docs-parent/` をコミットし、親で submodule のポインタを更新する。
+4. `04_api_openapi.yaml` を変えたら、App で `npm run gen:api` を実行して型を作り直す。
