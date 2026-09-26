@@ -41,7 +41,7 @@
 | 論点 | 状態 |
 |---|---|
 | **① どのツールで上げるか** | ✅ **B. `r0adkll/upload-google-play`（SHA固定）**（2026-09-26。[COMPARISON.md](COMPARISON.md) §2） |
-| **② ⚠️ 署名をどこでやるか**（鍵をCIに置くか） | ✅ **CIで署名する**（鍵の写しを Environment secrets に置き、`v*` タグに限定。[SETUP.md](SETUP.md) §4） |
+| **② ⚠️ 署名をどこでやるか**（鍵をCIに置くか） | ✅ **CIで署名する**（鍵の写しを Environment secrets に置き、`v*` タグに限定。CICD の [PLAY_RELEASE.md](https://github.com/h-akira/TouringProject_CICD/blob/main/PLAY_RELEASE.md) §4） |
 | **③ 何を引き金にするか**（push / タグ / 手動） | ✅ **`v*` タグの push** |
 
 ## ファイル
@@ -50,7 +50,7 @@
 |---|---|
 | **README.md**（本書） | **なぜやるか・何が未決か** |
 | [COMPARISON.md](COMPARISON.md) | ⚠️ **選択肢の比較**（①〜③の材料） |
-| [SETUP.md](SETUP.md) | **共通して必要になる準備**（サービスアカウント等） |
+| [SETUP.md](SETUP.md) | ⚠️ **移動済み。** 設定手順は CICD の [PLAY_RELEASE.md](https://github.com/h-akira/TouringProject_CICD/blob/main/PLAY_RELEASE.md)（非公開） |
 
 ## 📌 決まっていること（前提として動かさない）
 
@@ -66,7 +66,7 @@
 
 ## 次の一手
 
-1. ✅ **準備（[SETUP.md](SETUP.md) §1〜4）は完了**（2026-09-26）
-2. ✅ **読み取りだけのワークフローで、サービスアカウントが API を叩けることを確認済み**（2026-09-26。[SETUP.md](SETUP.md) §6）
+1. ✅ **準備（CICD の [PLAY_RELEASE.md](https://github.com/h-akira/TouringProject_CICD/blob/main/PLAY_RELEASE.md) §1〜4）は完了**（2026-09-26）
+2. ✅ **読み取りだけのワークフローで、サービスアカウントが API を叩けることを確認済み**（2026-09-26。CICD の [PLAY_RELEASE.md](https://github.com/h-akira/TouringProject_CICD/blob/main/PLAY_RELEASE.md) §5）
 3. ✅ **タグの push で ビルド→署名→アップロード するワークフローを書いた**（App の `.github/workflows/play-release.yml`）
 4. ✅ **最初のタグ（`v1.42.0`）で内部テストへの配信に成功**（2026-09-26。**全体で約23分、うちビルド約22分**。NDK はランナーに無い版が自動で入った）

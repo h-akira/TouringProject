@@ -165,6 +165,7 @@ ADRは**その時点で何を知った上でどう判断したか**の記録な�
   📌 **`CLAUDE.md` と `.memory/` には必要な範囲で書いてよい。** ⚠️ **CICD の中身も公開前提で書く**（秘密を入れない規約はそのまま）。
   📌 **対象は AI（Bedrock）を呼ぶ AWS 側（Agent・Backend）の CI/CD だけ。** 各リポジトリの `buildspec.yml` が公開されている程度は問題ない。
   ✅ **App の Play 配信（GitHub Actions）は対象外**なので、ワークフローも ADR も普通に書いてよい。
+  📌 **ただし設定手順（Google Cloud・Play Console・GitHub の Environment）は CI/CD の一部として `CICD/PLAY_RELEASE.md` に置く。**
 
 ## AWS / バックエンド開発
 
