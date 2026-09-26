@@ -10,3 +10,9 @@
 [submodule "CICD"]
 	path = CICD
 	url = git@github.com:h-akira/TouringProject_CICD.git
+[submodule "learning"]
+	path = learning
+	url = git@github.com:h-akira/TouringProject_Learning.git
+[submodule "research"]
+	path = research
+	url = git@github.com:h-akira/TouringProject_Research.git

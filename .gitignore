@@ -4,12 +4,8 @@ dist/
 build/
 *.tsbuildinfo
 
-# ⚠️ Agent/ Backend/ App/ CICD/ は submodule。それぞれの除外ルールは
+# ⚠️ App/ Backend/ Agent/ CICD/ learning/ research/ は submodule。それぞれの除外ルールは
 # 各リポジトリの .gitignore にある（親の .gitignore は submodule の中には効かない）。
-
-# === Expo / React Native（pre-research/ の検証用アプリ向け）===
-.expo/
-web-build/
 
 # === 環境変数・機密情報 ===
 .env
@@ -22,30 +18,8 @@ web-build/
 *.jks
 *.mobileprovision
 
-# === AWS / インフラ（pre-research/ の検証用プロジェクト向け）===
-.aws-sam/
-cdk.out/
-.serverless/
-
-# === AgentCore ===
-# デプロイすると実アカウントID・ARN・エンドポイントURLが書き込まれるため除外。
-# このリポジトリは公開しているので、CLIが生成する状態ファイルは追跡しない。
-# パスを固定せず、AgentCoreプロジェクトがどこにあっても効くようにする
-# （pre-research/ 配下に作る検証用プロジェクトも同じ生成物を持つため）。
-**/agentcore/.cli/
-**/agentcore/aws-targets.json
-**/agentcore/.env.local
-# 除外すると新しい環境で書式が分からなくなるため、雛形は追跡する
-# （touringAgent/agentcore/aws-targets-sample.json。実IDを入れてリネームして使う）
-# uv が作る仮想環境（.venv は生成物側の .gitignore でも除外されるが二重に明示）
-**/app/*/.venv/
-
 # === ログ・一時ファイル ===
 *.log
-npm-debug.*
-yarn-debug.*
-yarn-error.*
-.metro-health-check*
 tmp/
 
 # === 手元に恒久的に置く個人のファイル（tmp/ は一時的なもの）===
@@ -57,9 +31,6 @@ Thumbs.db
 *.swp
 .idea/
 # .vscode/ はチームで共有したい設定もあるため個別判断（必要なら追記）
-
-# === 非公開メモ（キャリア観点など個人的な検討）===
-pre-research/XX_*.md
 
 # === 疎通確認に使う音声 ===
 # ⚠️ 録音には話し手の声が入り、回答音声には現在地が出てくることがある。
