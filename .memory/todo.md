@@ -27,8 +27,8 @@
 ### 2. ⚠️ Playへの配信を自動化する ← **優先**
 
 ✅ **方針は決まり（[adr/009](../adr/009_play_internal_testing_release.md) 改訂）、準備（Google Cloud・Play Console・Environment `play` と Secrets）も完了。**
-⚠️ **残り**: ① `play-api-check.yml` で API が通るか確かめる（[SETUP.md](../pre-research/play-cicd/SETUP.md) §6）
-② **タグの push で ビルド→署名→アップロード するワークフローを書く**（CI の JDK・SDK を手元と揃える）
+✅ **API の確認済み**（2026-09-26）・✅ **本番のワークフロー `App/.github/workflows/play-release.yml` を作成**（App **v1.42.0**。手元で同じ検査が通ることを確認）。
+⚠️ **残り**: **`v1.42.0` のタグの push で実際に内部テストへ配信されるか確かめる**（CI での初回ビルド。JDK・NDK の差で落ちうる）
 
 ### 3. Playストアで配れるようにする（残り）
 

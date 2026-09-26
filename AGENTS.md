@@ -141,6 +141,7 @@ ADRは**その時点で何を知った上でどう判断したか**の記録な�
   📌 **タグ名は `v` + `app.json` の値**（`v1.31.0`）。**タグと version は1対1。**
   **タグのメッセージは英語**（コミットメッセージと同じ）で、
   ⚠️ **「何が動くようになったか」を書く**（差分の要約ではない）。
+  ⚠️ **`v*` タグの push は Play の内部テストへの配信を意味する**（App の `.github/workflows/play-release.yml`。[adr/009](adr/009_play_internal_testing_release.md) 改訂）。
   📌 **`git push` と同じくタグの push もユーザーが行う**（`git -C App push --tags`。⚠️ **親で `git push --tags` しても App のタグは上がらない**）。
 
 ## ⚠️ リポジトリ構成（submodule）

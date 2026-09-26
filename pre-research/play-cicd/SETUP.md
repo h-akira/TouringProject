@@ -207,7 +207,7 @@ base64 -i ~/.keystore/touring-upload.jks | pbcopy
 📌 **まず「サービスアカウントでAPIが叩けるか」だけを確かめる**のが安全。
 **既存のリリース一覧を取得するだけの読み取り操作**なら、⚠️ **何も壊さずに権限を確認できる。**
 
-📌 **App の `.github/workflows/play-api-check.yml` がそれ。** 手動実行（`workflow_dispatch`）専用。
+📌 **App の `.github/workflows/play-api-check.yml` がそれ**（⚠️ **確認後に削除した。App の `v1.41.0` のタグに残っている**）。手動実行（`workflow_dispatch`）専用。
 ⚠️ **Secrets は `v*` タグからしか読めない**ので、**タグを指定して実行する**
 （⚠️ **ワークフローのファイルが `main` とそのタグの両方に入っている必要がある**）:
 
