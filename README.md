@@ -41,6 +41,7 @@ submodule を取得しないと、`App/` などは空のディレクトリにな
 
 | やりたいこと | 見るところ |
 |---|---|
+| アプリを使う | [App/USAGE.md](https://github.com/h-akira/TouringProject_App/blob/main/USAGE.md) |
 | アプリを動かす・ビルドする | [App/README.md](https://github.com/h-akira/TouringProject_App/blob/main/README.md)・[App/SETUP.md](https://github.com/h-akira/TouringProject_App/blob/main/SETUP.md) |
 | バックエンドをデプロイする・API キーを取り出す | [Backend/README.md](https://github.com/h-akira/TouringProject_Backend/blob/main/README.md) |
 | エージェントをデプロイする | [Agent/README.md](https://github.com/h-akira/TouringProject_Agent/blob/main/README.md) |
