@@ -14,8 +14,6 @@
 | 優先度 | 論点 | 何を決めるか | 参照 |
 |---|---|---|---|
 | 高 | インカムで録るときの録音条件 | `voice_communication` を捨ててよいか（インカムの CVC で足りるか・エコーが出ないか）と、その後の録音条件・送信サイズを走行で測って決める | App `adr/005`・research `mic-routing/` |
-| 中 | 周辺検索のツール化 | 「あの山は？」「近くのマクドナルドは？」に答えるツールの粒度（カテゴリ・半径・件数）と呼び出し回数の抑え方。案は Agent の `@tool` で `SearchNearby`・`SearchText` を呼び、座標はペイロードから読む | research `geocoding/` §5 |
-| 中 | Amazon Location をどこまで使うか | 案は `ReverseGeocode`（毎回）と `SearchNearby`・`SearchText`（ツール）だけで、経路・地図は使わない | research `geocoding/` §5 |
 | 低 | 現在地を個人情報としてどう扱うか | CloudWatch に残る座標と住所（Backend 側のログは未確認）の保存方針。メモ機能を作るなら必須 | research `geocoding/` §7 |
 | 低 | `App/SETUP.md` を分けるか | 421行で目安の300行を超える。「Play に出すビルド」の節を別ファイルにするか | `App/SETUP.md` |
 
@@ -23,6 +21,9 @@
 
 | 決定日 | 論点 | 結論 | 参照 |
 |---|---|---|---|
+| 2026-10-09 | Agent に Amazon Location の権限をどう足すか | `cdk/lib/cdk-stack.ts` に実行ロールの権限を数行足す（`cdk/` を触らない規約の唯一の例外） | `Agent/AGENTS.md`・`Agent/docs/01_architecture.md` §7 |
+| 2026-10-09 | 周辺検索をどう作るか | Agent の `@tool` 2つ（種類で探す・名前で探す）。座標はペイロードの `location` から読み、距離・方角・左右はコードで計算する | `Agent/docs/01_architecture.md` §4・契約 UC-5 |
+| 2026-10-09 | Amazon Location をどこまで使うか | `ReverseGeocode`（Backend・毎回）と `SearchNearby`・`SearchText`（Agent・ツール）だけ。経路・地図は使わない。道路名は1点では決まらないので保留 | research `geocoding/FINDINGS.md` |
 | 2026-09-26 | ドキュメントの構成 | ユニットごとに docs・adr・AGENTS.md を持ち、親の docs は `docs-parent/` として写し、learning・research は submodule にする | `adr/008` |
 | 2026-09-26 | App の `version` を上げる条件 | ビルドが変わる変更のときだけ上げる（ドキュメントだけの変更では上げない） | `App/AGENTS.md` |
 | 2026-09-26 | Play への配信の自動化 | `v*` タグの push で GitHub Actions がビルド・署名し、r0adkll（SHA 固定）で内部テストへ上げる | App `adr/004` |
