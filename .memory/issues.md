@@ -14,7 +14,8 @@
 | 優先度 | 論点 | 何を決めるか | 参照 |
 |---|---|---|---|
 | 高 | インカムで録るときの録音条件 | `voice_communication` を捨ててよいか（インカムの CVC で足りるか・エコーが出ないか）と、その後の録音条件・送信サイズを走行で測って決める | App `adr/005`・research `mic-routing/` |
-| 中 | 周辺検索のツール化 | 「あの山は？」に答えるためのツールの粒度と呼び出し回数の抑え方 | research `geocoding/` §5 |
+| 中 | 周辺検索のツール化 | 「あの山は？」「近くのマクドナルドは？」に答えるツールの粒度（カテゴリ・半径・件数）と呼び出し回数の抑え方。案は Agent の `@tool` で `SearchNearby`・`SearchText` を呼び、座標はペイロードから読む | research `geocoding/` §5 |
+| 中 | Amazon Location をどこまで使うか | 案は `ReverseGeocode`（毎回）と `SearchNearby`・`SearchText`（ツール）だけで、経路・地図は使わない | research `geocoding/` §5 |
 | 低 | 現在地を個人情報としてどう扱うか | CloudWatch に残る座標と住所（Backend 側のログは未確認）の保存方針。メモ機能を作るなら必須 | research `geocoding/` §7 |
 | 低 | `App/SETUP.md` を分けるか | 421行で目安の300行を超える。「Play に出すビルド」の節を別ファイルにするか | `App/SETUP.md` |
 
